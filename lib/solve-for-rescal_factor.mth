@@ -1,0 +1,32 @@
+# -*-Mathomatic-*- worksheet
+#
+# Solve for rescale_factor
+# Rather than doing it by eye.
+#
+# rescale_factor = 1.5
+# plt_pred_adj = np.array([ ((y_p_adj[i] - y_test[i]) * plt_test_scaler[i]/rescale_factor) +
+#                plt_test_rescaled[i]  for i in range(len(y_p_adj)) ])
+#
+
+# In this case, we don't know that rescaled_pred is (which is a scaled version of y_p_adj)...
+rescaled_pred = ((y_p_adj - y_test) * (plt_test_scaler / rescale_factor)) + plt_test_rescaled
+solve verify rescale_factor
+#                      plt_test_scaler*(y_test - y_p_adj)
+#   : rescale_factor = -----------------------------------
+#                      (plt_test_rescaled - rescaled_pred)
+
+plt_test_usd = 100.50
+scaled_delta = (y_p_adj - y_test)
+scaled_delta_pct = scaled_delta / y_test
+plt_test_scaler = plt_test_usd / y_test
+# We want the rescaled delta to have the same percentage as the scaled delta.
+rescaled_delta = ((y_p_adj * plt_test_scaler)  - (y_test * plt_test_scaler))
+rescaled_delta_pct = rescaled_delta / (y_test * plt_test_scaler)
+rescaled_delta_pct = scaled_delta_pct * rescale_factor
+solve verify rescale_factor
+#                       rescaled_delta_pct
+#    : rescale_factor = ------------------
+#                       scaled_delta_pct
+
+
+
