@@ -64,6 +64,7 @@ tiNewGrp = 'tiNewGrp'  # Text input for adding a new group
 bRremoveGroup = 'bRremoveGroup'  # Button for removing a group
 sbRremoveGroup = 'sbRremoveGroup'  # Selectbox for removing a group
 sbToggleGrp = 'sbToggleGrp'  # Selectbox for toggling a group
+ss_val_addNewSyms = 'val_addNewSyms'
 
 # Symbol under review
 img_sym = None
@@ -227,16 +228,17 @@ def main(message):
         st.sidebar.add_rows = exp_sym
 
         # -- Handle add new symbols text input
-        if st.session_state.new_sym > '':
+        if ti_addNewSyms != '':
             # Split on new_sym on spaces, colon, semicolon and commas
-            new_syms = st.session_state.new_sym
+            new_syms = ti_addNewSyms
             new_syms = re.split(r'[\s,;:]+', new_syms)
-            add_new_symbols(st, exp_sym, new_syms)
+            if new_syms[0] != '':
+                add_new_symbols(st, exp_sym, new_syms)
             # Save all_df_symbols
             all_df_symbols = st.session_state[ss_AllDfSym]
             df_symbols = st.session_state[ss_DfSym]
             merge_and_save(all_df_symbols, df_symbols)
-            ti_addNewSyms = st.empty()
+            ti_addNewSyms.replace(ti_addNewSyms, '')
 
         # -- Add Expander for filtering the symbols
         exp_sort_filter = st.expander("Filter", expanded=False)
@@ -335,7 +337,6 @@ def main(message):
             if dfSave_syms:
                 logger.debug(f"1> Saving all_df_symbols to {guiAllSymbolsCsv}")
                 merge_and_save(all_df_symbols, df_symbols)
-            # store_pp_objects(st)
             st.rerun()
         if hasattr(st.session_state, ss_bCancelRmSyms) and st.session_state.cancel_rm_syms:
             st.session_state[ss_fRmChosenSyms] = False  # Turns off the Action Buttons
@@ -639,11 +640,13 @@ def add_new_symbols(st, exp_sym, syms):
     all_df_symbols = st.session_state[ss_AllDfSym]
     df_symbols = st.session_state[ss_DfSym]
     added_symbols = []
+    already_exists = []
     for sym in syms:
         # Verify with yahoo finance that the symbol is valid, and get the long name
         logger.info(f"1. New Symbols to be added: {st.session_state.new_sym}")
-        if ((sym not in st.session_state[ss_DfSym].Symbol.values)
-                and (sym != '')):
+        if sym == '':
+            continue
+        if sym not in st.session_state[ss_DfSym].Symbol.values:
             # Verify with yahoo finance that the symbol is valid, and get the long name
             new_ticker, long_name = getTickerLongName(sym)
             if new_ticker is not None:
@@ -657,8 +660,12 @@ def add_new_symbols(st, exp_sym, syms):
                                        ignore_index=True)
                 all_df_symbols = pd.concat([all_df_symbols, new_row], ignore_index=True)
                 added_symbols.append(sym)
-            else:
-                st.error(f"Invalid Symbol [{sym}]")
+        else:
+            already_exists.append(sym)
+
+    if len(added_symbols) == 0:
+        st.info(f"Symbols Already Exists: {already_exists}")
+        return
 
     df_symbols.reindex()
     st.session_state[ss_DfSym] = df_symbols
@@ -676,6 +683,9 @@ def add_new_symbols(st, exp_sym, syms):
         pp_w.last_analysis = five_days_ago
         st.session_state[ss_SymDpps_w][sym] = pp_w
 
+    txt = f"New Symbols Added: {added_symbols}"
+    if len(already_exists) > 0:
+        txt += f"\nSymbols Already Exists: {already_exists}"
     st.info(f"New Symbols Added: {added_symbols}")
 
     # Run an analysis on all symbols
@@ -958,18 +968,6 @@ def analyze_symbols(st, prog_bar, df_symbols, just_one=None, imported_syms=None)
             # Update the progress bar
             prog_bar.progress(int(i / total_syms * 100), f"Analyzing: {row.Symbol} ({i}/{total_syms})")
 
-            # sym_, pp_ = future.result()
-            # if future().exception():
-            #     logger.error(f"Error processing symbol: {sym_}\n{future().exception()}")
-            #     del futures[future]
-            #     continue
-            # if sym_ is not None and pp_.period == PricePredict.PeriodWeekly:
-            #     st.session_state[ss_SymDpps_w][sym_] = pp_
-            #     del futures[future]
-            # elif sym_ is not None and pp_.period == PricePredict.PeriodDaily:
-            #     st.session_state[ss_SymDpps_d][sym_] = pp_
-            #     del futures[future]
-
             if isinstance(future, Exception):
                 logger.error(f"Error processing symbol: {future.args[0], future.args[1]} {future.result}")
                 continue
@@ -986,6 +984,18 @@ def analyze_symbols(st, prog_bar, df_symbols, just_one=None, imported_syms=None)
                      just_one=just_one)
     sym_correlations('Daily', st, st.session_state[ss_SymDpps_d], prog_bar,
                      just_one=just_one)
+
+    # Push all_df_symbols data into the df_symbols DataFrame for display
+    for row in all_df_symbols.itertuples():
+        idx = all_df_symbols.index[df_symbols.Symbol == row.Symbol].tolist()
+        if len(idx) == 1:
+            df_symbols.loc[idx[0], 'Trend'] = row.Trend
+            df_symbols.loc[idx[0], 'WklyPrdStg'] = row.WklyPrdStg
+            df_symbols.loc[idx[0], 'DlyPrdStg'] = row.DlyPrdStg
+            df_symbols.loc[idx[0], 'wTop10Corr'] = row.wTop10Corr
+            df_symbols.loc[idx[0], 'wTop10xCorr'] = row.wTop10xCorr
+            df_symbols.loc[idx[0], 'dTop10Corr'] = row.dTop10Corr
+            df_symbols.loc[idx[0], 'dTop10xCorr'] = row.dTop10xCorr
 
     st.session_state[ss_AllDfSym] = update_viz_data(st, all_df_symbols)
 
@@ -1088,6 +1098,7 @@ def sync_dpps_objects(st):
 def store_pp_objects(st):
     sync_dpps_objects(st)
     logger.info("Saving PricePredict objects")
+    st.info("Saving PricePredict objects...")
     # Save out the PricePredict objects
     sym_dpps_d_ = st.session_state[ss_SymDpps_d]
     try:
@@ -1114,6 +1125,7 @@ def store_pp_objects(st):
 
     except Exception as e:
         logger.error(f"Error saving  {dill_sym_dpps_w} - len[{len(sym_dpps_w_)}]: {e}")
+        st.error(f"Error saving PricePredict objects: {e}")
 
 
 def task_pull_data(symbol_, dpp):
@@ -1299,12 +1311,12 @@ def sym_correlations(prd, st, sym_dpps, prog_bar, just_one=None):
     min_data_points = 50
 
     # Correlations on the Daily Objects...
-    df_symbols = st.session_state[ss_DfSym]
+    all_df_symbols = st.session_state[ss_AllDfSym]
     sym_corr = {}
     i = 0
     item_cnt = len(sym_dpps)
     for tsym in sym_dpps:
-        if tsym not in df_symbols.Symbol.values:
+        if tsym not in all_df_symbols.Symbol.values:
             # Skip symbols not in the DataFrame
             continue
         i += 1
