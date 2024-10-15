@@ -111,8 +111,10 @@ def main(message):
             # Startup Initialization: Load the symbols from the file
             # --------------------------------------------------------
             # Load the symbols from the file
+            logger.debug(f"Loading all_df_symbols from {guiAllSymbolsCsv} from file {guiAllSymbolsCsv}")
             st.session_state[ss_AllDfSym] = pd.read_csv(guiAllSymbolsCsv, header='infer')
             # Load pp daily objects
+            logger.debug(f"Loading sym_dpps_d/w from {dill_sym_dpps_d} and {dillbk_sym_dpps_w}")
             st.session_state[ss_SymDpps_d], st.session_state[ss_SymDpps_w] = load_pp_objects(st)
 
         if ss_DfSym not in st.session_state:
@@ -262,7 +264,7 @@ def main(message):
 
         # Single-Row / Mylti-Row Toggle :  =================
         if ((st.session_state.bRemove_sym or rm_chosen_syms)               # Remove Chosen Symbols
-            or (st.session_state.sbToggleGrp or toggle_chosen_group)):   # Mark/Clear Favorites
+            or (st.session_state.sbToggleGrp != ' ')):   # Mark/Clear Favorites
             logger.info("2>>> Multi-Row on")
             if st.session_state.bRemove_sym or rm_chosen_syms:   # Remove Chosen Symbols
                 st.session_state[ss_fRmChosenSyms] = True
@@ -287,9 +289,8 @@ def main(message):
         # =============================================================
 
         # Action Buttons : Mark/Clear Favorites =======================
-        elif st.session_state.sbToggleGrp != '':
-            if st.session_state.sbToggleGrp != '':
-                logger.info("*** Toggle Groups ***")
+        elif st.session_state.sbToggleGrp != ' ':
+            logger.info("*** Toggle Groups ***")
             sym_col.append(st.button("Cancel Toggle Group Operation", key=ss_bCancelTglFaves))
         # =============================================================
 
@@ -445,7 +446,7 @@ def st_dataframe_widget(exp_sym, ss_DfSym, df_sel_mode, sym_col):
     if (st.session_state.bRemove_sym
             or (hasattr(st.session_state, ss_fRmChosenSyms)
                 and st.session_state[ss_fRmChosenSyms])
-            or st.session_state.sbToggleGrp != ''
+            or st.session_state.sbToggleGrp != ' '
             or df_sel_mode == "multi-row"):
         # This is used when removing symbols and marking/clearing favorites
         on_select = 'rerun'
@@ -674,15 +675,21 @@ def add_new_symbols(st, exp_sym, syms):
     st.session_state[ss_AllDfSym] = all_df_symbols
 
     if len(added_symbols) == 0:
-        st.info(f"Symbols Already Exists: {already_exists}")
+        txt = ''
+        if len(already_exists) > 0:
+            txt += f"Symbols Already Exist: {already_exists}"
+        txt += f"No New Symbols to Add."
+        st.warning(txt)
         return
 
     for sym in added_symbols:
         # Create a datetime that is 5 days ago
         five_days_ago = datetime.now() - timedelta(days=5)
+        # Create a Daily PricePredict object for the symbol
         pp_d = PricePredict(ticker=sym, period=PricePredict.PeriodDaily)
         pp_d.last_analysis = five_days_ago
         st.session_state[ss_SymDpps_d][sym] = pp_d
+        # Create a Weekly PricePredict object for the symbol
         pp_w = PricePredict(ticker=sym,
                             period=PricePredict.PeriodWeekly)
         pp_w.last_analysis = five_days_ago
@@ -690,8 +697,8 @@ def add_new_symbols(st, exp_sym, syms):
 
     txt = f"New Symbols Added: {added_symbols}"
     if len(already_exists) > 0:
-        txt += f"\nSymbols Already Exists: {already_exists}"
-    st.info(f"New Symbols Added: {added_symbols}")
+        txt += f"\nSymbols Already Exist: {already_exists}"
+    st.warning(txt)
 
     # Run an analysis on all symbols
     prog_bar = exp_sym.progress(0, "Analyzing Symbols")
@@ -922,7 +929,7 @@ def analyze_symbols(st, prog_bar, df_symbols, just_one=None, imported_syms=None)
                 five_days_ago = datetime.now() - timedelta(days=7)
                 # This will force an update of the ppw object
                 ppw.last_analysis = five_days_ago
-                ppw.force_training = st.session_state[ss_forceTraining]
+                ppw.force_training = True
 
             logger.info(f"Weekly - Pull data for model: {row.Symbol}")
             try:
@@ -953,7 +960,7 @@ def analyze_symbols(st, prog_bar, df_symbols, just_one=None, imported_syms=None)
                 five_days_ago = datetime.now() - timedelta(days=3)
                 # This will force an update of the ppd object
                 ppd.last_analysis = five_days_ago
-                ppd.force_training = st.session_state[ss_forceTraining]
+                ppd.force_training = True
 
             logger.info(f"Daily - Pull data for model: {row.Symbol}")
             try:
@@ -1145,7 +1152,7 @@ def sync_dpps_objects(st):
 
 def store_pp_objects(st):
     sync_dpps_objects(st)
-    logger.info("Saving PricePredict objects")
+    logger.info("Saving PricePredict objects (Daily Object)...")
     st.info("Saving PricePredict objects...")
     # Save out the PricePredict objects
     sym_dpps_d_ = st.session_state[ss_SymDpps_d]
@@ -1160,7 +1167,7 @@ def store_pp_objects(st):
     except Exception as e:
         logger.error(f"Error {dill_sym_dpps_d} - len[{len(sym_dpps_d_)}]: {e}")
 
-    logger.info("Saving PricePredict objects")
+    logger.info("Saving PricePredict objects (Weekly Object)...")
     sym_dpps_w_ = st.session_state[ss_SymDpps_w]
     try:
         if len(sym_dpps_w_) > 0:

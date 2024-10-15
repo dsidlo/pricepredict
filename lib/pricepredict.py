@@ -72,7 +72,6 @@ class DataCache(BaseModel):
     items: Dict[str, Union[str, int, float, List[Any], Dict[str, Any]]] = Field(default_factory=dict)
 
     # Method to set a cache item
-    @validate_arguments(config=dict(arbitrary_types_allowed=True))
     def set_item(self, key: str, value: Union[str, int, float, List[Any], Dict[str, Any]]) -> None:
         set_value = None
         if str(type(value)) == "<class 'numpy.ndarray'>":
@@ -92,7 +91,6 @@ class DataCache(BaseModel):
         self.items[key] = set_value
 
     # Method to get a cache item
-    @validate_arguments(config=dict(arbitrary_types_allowed=True))
     def get_item(self, key: str) -> Optional[Union[str, int, float, List[Any], Dict[str, Any]]]:
         ret_val = self.items.get(key)
         if str(type(ret_val)) == "<class 'str'>":
@@ -105,7 +103,6 @@ class DataCache(BaseModel):
         return ret_val
 
     # Method to invalidate a cache item
-    @validate_arguments(config=dict(arbitrary_types_allowed=True))
     def invalidate_item(self, key: str) -> None:
         if key in self.items:
             del self.items[key]
@@ -1144,7 +1141,7 @@ class PricePredict():
         while i <= 3:
             i += 1
             try:
-                working_dir = '/home/dsidlo/lean-trading/ml-price-prediction'
+                working_dir = './'
                 os.chdir(working_dir)
                 # Save the model...
                 model.save(model_path)
