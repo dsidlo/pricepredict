@@ -18,11 +18,11 @@ Note: All local variable are initialized in on .reset('app') method.
       Keep all required variables in the session_state object.
 """
 
+import os
 import json
 import time
 import streamlit as st
 import pandas as pd
-import os
 import logging
 import dill
 import shutil
@@ -30,10 +30,14 @@ import yfinance as yf
 import futureproof as fp
 import hashlib
 import re
+import io
 
 from datetime import datetime, timedelta
 from pricepredict import PricePredict
 from io import StringIO
+
+# Change working directory to the ~/workspace/pricepredict directory
+os.chdir('/home/dsidlo/workspace/pricepredict')
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
@@ -49,6 +53,7 @@ ss_AllDfSym = 'all_df_symbols'      # Cache of all symbols
 ss_SymDpps_d = 'sym_dpps_d'         # Daily PricePredict objects list
 ss_SymDpps_w = 'sym_dpps_w'         # Weekly PricePredict objects list
 # Buttons...
+ss_bAddNewSyms = 'bAddNewSyms'
 ss_bCancelTglFaves = 'ss_bCancelTglFaves'
 ss_bToggleGroups = 'ss_bToggleGroups'
 ss_bCancelRmSyms = 'cancel_rm_syms'
@@ -56,8 +61,9 @@ ss_bRemoveChosenSyms = 'remove_chosen_syms'
 # Flags...
 ss_fDf_symbols_updated = 'st_df_symbols_updated'
 ss_fRmChosenSyms = 'Remove Chosen Symbols Flag'
-ss_fTglFavs = 'Toggle Favorites'
 ss_forceTraining = "cbForceTraining"
+ss_fRemoveNewSyms = 'remove_new_sym'
+ss_fYesRemoveNewSyms = 'yes_remove_new_sym'
 # Variables for Grouping Operations...
 ss_GroupsList = 'GroupsList'  # Current Groups List
 tiNewGrp = 'tiNewGrp'  # Text input for adding a new group
@@ -171,14 +177,10 @@ def main(message):
         col_tgl_grp1, col_tgl_grp2 = exp_grps.columns(2)
         # -- Add a button for initiating toggle favorites
         # Init the "Toggle Groups" state flag.
-        if ss_fTglFavs not in st.session_state:
-            st.session_state[ss_fTglFavs] = False
-        toggle_chosen_faves = st.session_state[ss_fTglFavs]
         col_tgl_grp1.button("Toggle Groups", key=ss_bToggleGroups)
         col_tgl_grp2.selectbox("Set Group", label_visibility='collapsed',
                                options=st.session_state[ss_GroupsList],
                                key=sbToggleGrp)
-
         # Init the "Remove Chosen Symbols" state flag.
         if ss_fRmChosenSyms not in st.session_state:
             st.session_state[ss_fRmChosenSyms] = False
@@ -186,10 +188,13 @@ def main(message):
 
         # -- Add Expander for adding a new symbol
         exp_sym = st.expander("Add/Remove Symbols", expanded=False)
+        col1, col2 = exp_sym.columns(2)
         # -- Add a text input for adding a new symbol
         if 'new_sym_value' not in locals():
             new_sym_value = ''
-        ti_addNewSyms = exp_sym.text_input("Add New Symbols", key="new_sym",
+        bAddNewSyms = col1.button("Add New Symbols", key="ss_bAddNewSyms")
+        ti_addNewSyms = col2.text_input("Add New Symbols",
+                                           key="new_sym", label_visibility='collapsed',
                                            value='', placeholder="Enter a new symbol")
         imported_data = b''
         # -- Add a file uploader button for importing symbols
@@ -197,11 +202,11 @@ def main(message):
         exp_sym.file_uploader("Import Symbols", key="import_syms",
                                 type='csv')
         # -- Add a button for initiating removing the imported symbols
-        exp_sym.button("Remove Imported Symbols", key="remove_imp_sym")
+        exp_sym.button("Remove New Symbols", key="remove_imp_sym")
         if (hasattr(st.session_state, ss_fDf_symbols_updated) and st.session_state[ss_fDf_symbols_updated]
-            # Indicate successful removal of imported symbols
+            # Indicate successful removal of New symbols
             and st.session_state['imp_sums_removed'] > 0):
-            exp_sym.success(f'**[{st.session_state["imp_sums_removed"]}] Imported Symbols Removed.**', icon='👍')
+            exp_sym.success(f'**[{st.session_state["imp_sums_removed"]}] New Symbols Removed.**', icon='👍')
             st.session_state[ss_fDf_symbols_updated] = False
 
         # -- Add a button for adding the new symbol
@@ -228,7 +233,7 @@ def main(message):
         st.sidebar.add_rows = exp_sym
 
         # -- Handle add new symbols text input
-        if ti_addNewSyms != '':
+        if bAddNewSyms and ti_addNewSyms != '':
             # Split on new_sym on spaces, colon, semicolon and commas
             new_syms = ti_addNewSyms
             new_syms = re.split(r'[\s,;:]+', new_syms)
@@ -246,7 +251,7 @@ def main(message):
         exp_sort_filter.selectbox(
             # Add a dropdown for filtering the symbols
             "***- filter -***",
-            ("All", "Up Trending", "Down Trending", "Flat", "Imported"),
+            ("All", "Up Trending", "Down Trending", "Flat", "New"),
             on_change=filter_symbols,
             # Make this elements value available via the st.session_state object.
             key="filter_sym"
@@ -257,12 +262,10 @@ def main(message):
 
         # Single-Row / Mylti-Row Toggle :  =================
         if ((st.session_state.bRemove_sym or rm_chosen_syms)               # Remove Chosen Symbols
-            or (st.session_state.sbToggleGrp or toggle_chosen_faves)):   # Mark/Clear Favorites
+            or (st.session_state.sbToggleGrp or toggle_chosen_group)):   # Mark/Clear Favorites
             logger.info("2>>> Multi-Row on")
             if st.session_state.bRemove_sym or rm_chosen_syms:   # Remove Chosen Symbols
                 st.session_state[ss_fRmChosenSyms] = True
-            if st.session_state.sbToggleGrp or toggle_chosen_faves:   # Mark/Clear Favorites
-                st.session_state[ss_fTglFavs] = True
             df_sel_mode = ["multi-row"]
         else:
             logger.info("2>>> Multi-Row off")
@@ -284,10 +287,9 @@ def main(message):
         # =============================================================
 
         # Action Buttons : Mark/Clear Favorites =======================
-        elif st.session_state.sbToggleGrp != '' or toggle_chosen_faves:
-            # Remove the imported symbols from the DataFrame
-            logger.info("*** Toggle Favorites ***")
-            st.session_state[ss_fTglFavs] = True
+        elif st.session_state.sbToggleGrp != '':
+            if st.session_state.sbToggleGrp != '':
+                logger.info("*** Toggle Groups ***")
             sym_col.append(st.button("Cancel Toggle Group Operation", key=ss_bCancelTglFaves))
         # =============================================================
 
@@ -300,11 +302,11 @@ def main(message):
             img_sym = df_symbols.Symbol[df_sym.selection.rows[0]]
         # =============================================================
 
-        # Remove Imported Symbols =====================================
-        if hasattr(st.session_state, 'remove_imp_sym') and st.session_state.remove_imp_sym:
+        # Remove New Symbols =====================================
+        if hasattr(st.session_state, ss_fRemoveNewSyms) and st.session_state.remove_imp_sym:
             dlg_rm_imp_syms()
 
-        if hasattr(st.session_state, 'yes_remove_imp_sym') and st.session_state.yes_remove_imp_sym:
+        if hasattr(st.session_state, ss_fYesRemoveNewSyms) and st.session_state.yes_remove_imp_sym:
             if hasattr(st.session_state, ss_fDf_symbols_updated) and st.session_state[ss_fDf_symbols_updated]:
                 st.session_state[ss_fDf_symbols_updated] = False
                 st.rerun()
@@ -346,7 +348,6 @@ def main(message):
 
         # Toggle Favorites ====================================
         if hasattr(st.session_state, ss_bToggleGroups) and st.session_state.ss_bToggleGroups:
-            st.session_state[ss_fTglFavs] = False   # Turns off the Action Buttons
             group_fld = 'Groups'
             sym_fild = 'Symbol'
             fSaveDfSyms = False
@@ -376,7 +377,6 @@ def main(message):
             st.rerun()  # Refresh the page
 
         if hasattr(st.session_state, ss_bCancelTglFaves) and st.session_state.ss_bCancelTglFaves:
-                st.session_state[ss_fTglFavs] = False   # Turns off the Action Buttons
                 logger.info('*** Canceled: Remove Chosen Symbols ***')
                 st.rerun()  # Refresh the page
         # =====================================================
@@ -407,11 +407,14 @@ def merge_and_save(all_df_symbols, df_symbols):
     # Save out the updated DataFrames and PricePredict objects
     if len(all_df_symbols.columns) == import_cols_full:
         # Sort all_df_symbols by Symbol
+        logger.debug(f"3> Saving all_df_symbols to {guiAllSymbolsCsv}")
         all_df_symbols.to_csv(guiAllSymbolsCsv, index=False)
     else:
         logger.error(
             f"Error all_df_symbols has too many columns [{len(all_df_symbols)}]: {all_df_symbols.columns}")
 
+    st.session_state[ss_AllDfSym] = all_df_symbols
+    st.session_state[ss_DfSym] = df_symbols
 
 def getTickerLongName(chk_ticker):
     ticker = None
@@ -442,8 +445,7 @@ def st_dataframe_widget(exp_sym, ss_DfSym, df_sel_mode, sym_col):
     if (st.session_state.bRemove_sym
             or (hasattr(st.session_state, ss_fRmChosenSyms)
                 and st.session_state[ss_fRmChosenSyms])
-            or (hasattr(st.session_state, ss_fTglFavs)
-                and st.session_state[ss_fTglFavs])
+            or st.session_state.sbToggleGrp != ''
             or df_sel_mode == "multi-row"):
         # This is used when removing symbols and marking/clearing favorites
         on_select = 'rerun'
@@ -531,7 +533,7 @@ def filter_symbols():
     all_df_symbols['Groups'] = all_df_symbols['Groups'].fillna('')
     # Save all_df_symbols to a file
     if len(all_df_symbols.columns) == import_cols_full:
-        logger.debug(f"3> Saving all_df_symbols to {guiAllSymbolsCsv}")
+        logger.debug(f"4> Saving all_df_symbols to {guiAllSymbolsCsv}")
         all_df_symbols.to_csv(guiAllSymbolsCsv, index=False)
     else:
         logger.error(f"Error all_df_symbols has too many columns [{len(all_df_symbols)}]: {all_df_symbols.columns}")
@@ -592,13 +594,13 @@ def import_symbols(st, exp_sym):
     df_imported_syms = pd.read_csv(StringIO(input_str), header='infer')
     if len(df_imported_syms.columns) == import_cols_simple:
         df_imported_syms['Groups'] = 'Imported'
-        df_imported_syms['Trend'] = ' '
+        df_imported_syms['Trend'] = ''
         df_imported_syms['WklyPrdStg'] = 0.0
         df_imported_syms['DlyPrdStg'] = 0.0
-        df_imported_syms['wTop10Corr'] = ' '
-        df_imported_syms['wTop10xCorr'] = ' '
-        df_imported_syms['dTop10Corr'] = ' '
-        df_imported_syms['dTop10xCorr'] = ' '
+        df_imported_syms['wTop10Corr'] = ''
+        df_imported_syms['wTop10xCorr'] = ''
+        df_imported_syms['dTop10Corr'] = ''
+        df_imported_syms['dTop10xCorr'] = ''
 
     # Drop the index column from the DataFrame
     df_imported_syms.reset_index(drop=True)
@@ -656,21 +658,24 @@ def add_new_symbols(st, exp_sym, syms):
                                         'DlyPrdStg': [0.0], 'WklyPrdStg': [0.0],
                                         'wTop10Corr': [''], 'wTop10xCorr': [''],
                                         'dTop10Corr': [''], 'dTop10xCorr': ['']})
+                # Add the symbol to the display DataFrame
                 df_symbols = pd.concat([df_symbols, new_row],
                                        ignore_index=True)
-                all_df_symbols = pd.concat([all_df_symbols, new_row], ignore_index=True)
+                # Add the symbol to the all symbols DataFrame
+                all_df_symbols = pd.concat([all_df_symbols, new_row],
+                                           ignore_index=True)
                 added_symbols.append(sym)
         else:
             already_exists.append(sym)
 
+    df_symbols.reindex()
+    all_df_symbols.reindex()
+    st.session_state[ss_DfSym] = df_symbols
+    st.session_state[ss_AllDfSym] = all_df_symbols
+
     if len(added_symbols) == 0:
         st.info(f"Symbols Already Exists: {already_exists}")
         return
-
-    df_symbols.reindex()
-    st.session_state[ss_DfSym] = df_symbols
-    all_df_symbols.reindex()
-    st.session_state[ss_AllDfSym] = all_df_symbols
 
     for sym in added_symbols:
         # Create a datetime that is 5 days ago
@@ -691,7 +696,7 @@ def add_new_symbols(st, exp_sym, syms):
     # Run an analysis on all symbols
     prog_bar = exp_sym.progress(0, "Analyzing Symbols")
     # await analyze_symbols(prog_bar, st.session_state[ss_DfSym])
-    analyze_symbols(st, prog_bar, st.session_state[ss_DfSym],
+    analyze_symbols(st, prog_bar, df_symbols,
                     imported_syms=added_symbols)
 
 
@@ -843,7 +848,7 @@ def display_symbol_charts():
             st.session_state['all_syms_md5'] = all_syms_md5
         if all_syms_md5 != st.session_state['all_syms_md5']:
             st.session_state['all_syms_md5'] = all_syms_md5
-            logger.debug(f"1> Saving all_df_symbols to {guiAllSymbolsCsv}")
+            logger.debug(f"5> Saving all_df_symbols to {guiAllSymbolsCsv}")
             all_df_symbols.to_csv(guiAllSymbolsCsv, index=False)
             logger.info("DataFrames and PricePredict objects saved")
     else:
@@ -909,7 +914,10 @@ def analyze_symbols(st, prog_bar, df_symbols, just_one=None, imported_syms=None)
 
             if st.session_state[ss_forceTraining]:
                 ppw.orig_data = None
-            if ppw.orig_data is None:
+            if (ppw.orig_data is None
+                or row.Trend == ''
+                or row.WklyPrdStg == 0.0
+                or row.wTop10Corr == 0.0):
                 # Get the datetime of 5 days ago
                 five_days_ago = datetime.now() - timedelta(days=7)
                 # This will force an update of the ppw object
@@ -937,7 +945,10 @@ def analyze_symbols(st, prog_bar, df_symbols, just_one=None, imported_syms=None)
 
             if st.session_state[ss_forceTraining]:
                 ppd.orig_data = None
-            if ppd.orig_data is None:
+            if (ppd.orig_data is None
+                or row.Trend == ''
+                or row.WklyPrdStg == 0.0
+                or row.wTop10Corr == 0.0):
                 # Get the datetime of 5 days ago
                 five_days_ago = datetime.now() - timedelta(days=3)
                 # This will force an update of the ppd object
@@ -985,6 +996,8 @@ def analyze_symbols(st, prog_bar, df_symbols, just_one=None, imported_syms=None)
     sym_correlations('Daily', st, st.session_state[ss_SymDpps_d], prog_bar,
                      just_one=just_one)
 
+    all_df_symbols = st.session_state[ss_AllDfSym]
+
     # Push all_df_symbols data into the df_symbols DataFrame for display
     for row in all_df_symbols.itertuples():
         idx = all_df_symbols.index[df_symbols.Symbol == row.Symbol].tolist()
@@ -997,7 +1010,14 @@ def analyze_symbols(st, prog_bar, df_symbols, just_one=None, imported_syms=None)
             df_symbols.loc[idx[0], 'dTop10Corr'] = row.dTop10Corr
             df_symbols.loc[idx[0], 'dTop10xCorr'] = row.dTop10xCorr
 
+    st.session_state[ss_DfSym] = df_symbols
+
     st.session_state[ss_AllDfSym] = update_viz_data(st, all_df_symbols)
+
+    # # Save out the updated DataFrames and PricePredict objects
+    # merge_and_save(all_df_symbols, df_symbols)
+    # st.session_state[ss_AllDfSym] = all_df_symbols
+    # st.session_state[ss_DfSym] = df_symbols
 
     # Save out the updated DataFrames and PricePredict objects
     store_pp_objects(st)
@@ -1076,12 +1096,40 @@ def sync_dpps_objects(st):
         return
     sym_dpp_d = st.session_state[ss_SymDpps_d].copy()
     sym_dpp_w = st.session_state[ss_SymDpps_w].copy()
+    object_removed = []
     for sym in sym_dpp_d:
         if sym not in df_symbols.Symbol.values:
             del st.session_state[ss_SymDpps_d][sym]
+        # Verify that dpp_d object is a PricePredict object
+        dpp_d = sym_dpp_d[sym]
+        if isinstance(dpp_d, PricePredict):
+            # Test pickling the object to a buffer.
+            buffer = io.BytesIO()
+            try:
+                dill.dump(dpp_d, buffer)
+            except Exception as e:
+                logger.warning(f"WARN: pickling PricePredict dpp_d object [{sym}]: {e}")
+                # Remove the unpicklable object
+                del st.session_state[ss_SymDpps_d][sym]
+                object_removed.append(sym+':d')
     for sym in sym_dpp_w:
         if sym not in df_symbols.Symbol.values:
             del st.session_state[ss_SymDpps_w][sym]
+        # Verify that dpp_d object is a PricePredict object
+        dpp_w = sym_dpp_w[sym]
+        if isinstance(dpp_w, PricePredict):
+            # Test pickling the object to a buffer.
+            buffer = io.BytesIO()
+            try:
+                dill.dump(dpp_w, buffer)
+            except Exception as e:
+                logger.warning(f"WARN: pickling PricePredict dpp_w object [{sym}]: {e}")
+                # Remove the unpicklable object
+                del st.session_state[ss_SymDpps_w][sym]
+                object_removed.append(sym+':w')
+
+    if len(object_removed) > 0:
+        st.warning(f"Removed PricePredict objects: {object_removed}")
 
     # Make sure that we have PricePredict objects for all the symbols in the DataFrame
     for sym in df_symbols.Symbol.values:

@@ -27,6 +27,7 @@ import json
 import jsonify
 import pydantic
 
+from dataclasses import dataclass
 from io import StringIO
 from ipywidgets import Output
 from keras.callbacks import History
@@ -45,6 +46,7 @@ from sklearn.metrics import mean_squared_error
 from IPython.display import Image
 from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
+from pydantic import validate_arguments
 from typing import Any, Dict, List, Optional, Union
 
 from sympy.physics.quantum.shor import period_find
@@ -70,6 +72,65 @@ class DataCache(BaseModel):
     items: Dict[str, Union[str, int, float, List[Any], Dict[str, Any]]] = Field(default_factory=dict)
 
     # Method to set a cache item
+    @validate_arguments(config=dict(arbitrary_types_allowed=True))
+    def set_item(self, key: str, value: Union[str, int, float, List[Any], Dict[str, Any]]) -> None:
+        set_value = None
+        if str(type(value)) == "<class 'numpy.ndarray'>":
+            if (str(type(value[0])) == "<class 'numpy.ndarray'>"
+                    and str(type(value[0][0])) == "<class 'numpy.float64'>"):
+                # 2D np.array: Convert the 3D np.array value into a json serializable format.
+                # self.data_scaled,y
+                set_value = json.dumps(value.tolist())
+            if (str(type(value[0])) == "<class 'numpy.ndarray'>"
+                    and str(type(value[0][0])) == "<class 'numpy.ndarray'>"
+                    and str(type(value[0][0][0])) == "<class 'numpy.float64'>"):
+                # 3D np.array: Convert the 3D np.array value into a json serializable format.
+                # self.X
+                set_value = json.dumps(value.tolist())
+        else:
+            set_value = value
+        self.items[key] = set_value
+
+    # Method to get a cache item
+    @validate_arguments(config=dict(arbitrary_types_allowed=True))
+    def get_item(self, key: str) -> Optional[Union[str, int, float, List[Any], Dict[str, Any]]]:
+        ret_val = self.items.get(key)
+        if str(type(ret_val)) == "<class 'str'>":
+            if re.match(r'^\[{2,3}([0-9\.\-e\]+),\s([0-9\.\-e]+),\s.*$', ret_val) is not None:
+                # 2D np.array: Convert the 3D np.array value into a json serializable format.
+                # self.data_scaled
+                # 3D np.array: Restore the value of a 3D numpy array from a json serializable format.
+                # self.X,y
+                ret_val = np.array(json.loads(ret_val))
+        return ret_val
+
+    # Method to invalidate a cache item
+    @validate_arguments(config=dict(arbitrary_types_allowed=True))
+    def invalidate_item(self, key: str) -> None:
+        if key in self.items:
+            del self.items[key]
+
+    # Method to clear all cache items
+    def clear_cache(self) -> None:
+        self.items.clear()
+
+@dataclass
+class dgsDataClass():
+    """
+    dgsDataClass Simple Class
+    """
+    symbol: str
+    dataStart: str
+    dataEnd: str
+    period: str
+    data: str
+    feature_cnt: int
+    data_scaled: str
+    target_cnt: int
+    dates_data: str
+    X: str
+    yL: str
+
     def set_item(self, key: str, value: Union[str, int, float, List[Any], Dict[str, Any]]) -> None:
         self.items[key] = value
 
@@ -85,7 +146,6 @@ class DataCache(BaseModel):
     # Method to clear all cache items
     def clear_cache(self) -> None:
         self.items.clear()
-
 
 # ================================
 # This is the PricePredict class.
@@ -214,8 +274,8 @@ class PricePredict():
         self.seasonal_dec = None          # The seasonal decomposition
         self.keras_log = keras_log        # The keras log file
         self.keras_verbosity = 0          # The keras verbosity level
-        self.cached_train_data = None     # Cached training data
-        self.cached_pred_data = None      # Cached prediction data
+        self.cached_train_data = DataCache     # Cached training data
+        self.cached_pred_data = DataCache      # Cached prediction data
         # Analitics...
         self.last_analysis = None         # The last analysis
         self.preds_path = None            # The path to the predictions file
@@ -744,6 +804,21 @@ class PricePredict():
         training_cache.set_item('dates_data', str_datesData.to_json())
         training_cache.set_item('X', list(self.X))
         training_cache.set_item('y', list(self.y))
+
+        # training_cache = dgsDataClass()
+        # training_cache.symbol = symbol
+        # training_cache.dateStart = dateStart_
+        # training_cache.dateEnd = dateEnd_
+        # training_cache.period = period
+        # tc_orig_data = self.orig_data.copy(deep=True)
+        # tc_orig_data.reset_index(inplace=True)
+        # training_cache.data = tc_orig_data.to_json()
+        # training_cache.feature_cnt = self.features
+        # training_cache.data_scaled = list(self.data_scaled)
+        # training_cache.target_cnt = self.targets
+        # training_cache.dates_data = str_datesData.to_json()
+        # training_cache.X = list(self.X)
+        # training_cache.y = list(self.y)
 
         # Save the cached data into this object...
         self.cached_train_data = training_cache
