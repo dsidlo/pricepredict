@@ -1005,17 +1005,18 @@ def analyze_symbols(st, prog_bar, df_symbols, just_one=None, imported_syms=None)
 
     all_df_symbols = st.session_state[ss_AllDfSym]
 
-    # Push all_df_symbols data into the df_symbols DataFrame for display
-    for row in all_df_symbols.itertuples():
-        idx = all_df_symbols.index[df_symbols.Symbol == row.Symbol].tolist()
-        if len(idx) == 1:
-            df_symbols.loc[idx[0], 'Trend'] = row.Trend
-            df_symbols.loc[idx[0], 'WklyPrdStg'] = row.WklyPrdStg
-            df_symbols.loc[idx[0], 'DlyPrdStg'] = row.DlyPrdStg
-            df_symbols.loc[idx[0], 'wTop10Corr'] = row.wTop10Corr
-            df_symbols.loc[idx[0], 'wTop10xCorr'] = row.wTop10xCorr
-            df_symbols.loc[idx[0], 'dTop10Corr'] = row.dTop10Corr
-            df_symbols.loc[idx[0], 'dTop10xCorr'] = row.dTop10xCorr
+    # # Push all_df_symbols data into the df_symbols DataFrame for display
+    # !!! This is not needed as update to df_symbols is done in the update_viz_data() function
+    # for row in all_df_symbols.itertuples():
+    #     idx = all_df_symbols.index[df_symbols.Symbol == row.Symbol].tolist()
+    #     if len(idx) == 1:
+    #         df_symbols.loc[idx[0], 'Trend'] = row.Trend
+    #         df_symbols.loc[idx[0], 'WklyPrdStg'] = row.WklyPrdStg
+    #         df_symbols.loc[idx[0], 'DlyPrdStg'] = row.DlyPrdStg
+    #         df_symbols.loc[idx[0], 'wTop10Corr'] = row.wTop10Corr
+    #         df_symbols.loc[idx[0], 'wTop10xCorr'] = row.wTop10xCorr
+    #         df_symbols.loc[idx[0], 'dTop10Corr'] = row.dTop10Corr
+    #         df_symbols.loc[idx[0], 'dTop10xCorr'] = row.dTop10xCorr
 
     st.session_state[ss_DfSym] = df_symbols
 
