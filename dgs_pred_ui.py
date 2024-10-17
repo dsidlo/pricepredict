@@ -291,10 +291,10 @@ def main(message):
 
         # Single-Row / Mylti-Row Toggle :  =================
         if ((st.session_state.bRemove_sym or rm_chosen_syms)               # Remove Chosen Symbols
-            or (st.session_state.sbToggleGrp != ' ')):   # Mark/Clear Favorites
+            or (st.session_state.sbToggleGrp is not None and st.session_state.sbToggleGrp.strip() != '')):   # Mark/Clear Favorites
             logger.info("2>>> Multi-Row on")
-            if st.session_state.bRemove_sym or rm_chosen_syms:   # Remove Chosen Symbols
-                st.session_state[ss_fRmChosenSyms] = True
+            # if st.session_state.bRemove_sym or rm_chosen_syms:   # Remove Chosen Symbols
+            #     st.session_state.sbToggleGrp = True
             df_sel_mode = ["multi-row"]
         else:
             logger.info("2>>> Multi-Row off")
@@ -316,7 +316,7 @@ def main(message):
         # =============================================================
 
         # Action Buttons : Mark/Clear Favorites =======================
-        elif st.session_state.sbToggleGrp != ' ':
+        elif st.session_state.sbToggleGrp is not None and st.session_state.sbToggleGrp != '':
             logger.info("*** Toggle Groups ***")
             sym_col.append(st.button("Cancel Toggle Group Operation", key=ss_bCancelTglFaves))
         # =============================================================
@@ -473,7 +473,7 @@ def st_dataframe_widget(exp_sym, ss_DfSym, df_sel_mode, sym_col):
     if (st.session_state.bRemove_sym
             or (hasattr(st.session_state, ss_fRmChosenSyms)
                 and st.session_state[ss_fRmChosenSyms])
-            or st.session_state.sbToggleGrp != ' '
+            or (st.session_state.sbToggleGrp is not None and st.session_state.sbToggleGrp.strip() != '')
             or df_sel_mode == "multi-row"):
         # This is used when removing symbols and marking/clearing favorites
         on_select = 'rerun'
@@ -764,7 +764,8 @@ def display_symbol_charts():
             # Within the main window...
             st.markdown(f"## - {img_sym}: {sym_longName} -")
             st.markdown(f"### Weekly Chart")
-            w_img_file = get_sym_image_file(img_sym, PricePredict.PeriodWeekly, "charts")
+            sym_indx = img_sym + "_" + 'W'
+            w_img_file = 'charts/' + st.session_state['sym_charts'][sym_indx]
             if w_img_file is not None:
                 if today not in w_img_file:
                     st.markdown("#### *** Chart May Not Be Current ***")
@@ -789,7 +790,8 @@ def display_symbol_charts():
             else:
                 st.markdown("#### *** No Weekly Chart Available ***")
             st.markdown(f"### Daily Chart")
-            d_img_file = get_sym_image_file(img_sym, PricePredict.PeriodDaily, "charts")
+            sym_indx = img_sym + "_" + 'D'
+            d_img_file = 'charts/' + st.session_state['sym_charts'][sym_indx]
             if d_img_file is not None:
                 if today not in d_img_file:
                     st.markdown("#### *** Chart May Not Be Current ***")
@@ -892,23 +894,6 @@ def display_symbol_charts():
             logger.info("DataFrames and PricePredict objects saved")
     else:
         logger.error(f"Error all_df_symbols has too many columns [{len(all_df_symbols)}]: {all_df_symbols.columns}")
-
-
-def get_sym_image_file(sym, period, path):
-    today = time.strftime("%Y-%m-%d")
-    img_file = f"{path}/{sym}_{period}_{today}.png"
-    if os.path.isfile(img_file):
-        return img_file
-    else:
-        # Find the most recent image file for the symbol
-        files = os.listdir(path)
-        # Isolate files that contain the symbol and period
-        files = [file for file in files if sym in file and period in file]
-        files.sort(reverse=True)
-        for file in files:
-            if sym in file and period in file:
-                return f"{path}/{file}"
-    return None
 
 
 # ======================================================================
@@ -1246,6 +1231,25 @@ def is_iterable(x):
         return False
 
 
+def create_charts_dict(st):
+    # Create a dicts of the chart image files in ./charts
+    # The format of the chart file name is <Symbol>_period_<date>.png
+    logger.debug("Creating charts dictionary...")
+    charts_dict = {}
+    if os.path.exists('charts'):
+        files = os.listdir('charts')
+        files.sort(reverse=True)
+        for file in files:
+            if file.endswith('.png'):
+                sym = file.split('_')[0]
+                period = file.split('_')[1]
+                index = sym + '_' + period
+                if index not in charts_dict.keys():
+                    charts_dict[sym + '_' + period] = file
+    if len(charts_dict) > 0:
+        st.session_state['sym_charts'] = charts_dict
+
+
 def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
 
     min_data_points = 50
@@ -1359,6 +1363,8 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
             df_symbols.loc[indx1, 'wTop10xCorr'] = all_df_symbols.loc[indx2, 'wTop10xCorr']
 
     st.session_state[ss_DfSym] = df_symbols
+
+    create_charts_dict(st)
 
     return df_symbols
 
