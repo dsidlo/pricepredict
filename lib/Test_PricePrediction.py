@@ -61,13 +61,13 @@ class Test_PricePredict(TestCase):
         return model_path
 
     def test_init(self):
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
         has_meth = callable(getattr(pp, 'fetch_data_yahoo', None))
         self.assertTrue(has_meth, "fetch_data_yahoo: Method not found")
 
     def test_chk_yahoo_ticker(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         ticker = "AAPL"
         ticker_data = pp.chk_yahoo_ticker(ticker)
@@ -83,7 +83,7 @@ class Test_PricePredict(TestCase):
 
     def test_fetch_data_yahoo(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # Load data from Yahoo Finance
         ticker = "AAPL"
@@ -100,6 +100,23 @@ class Test_PricePredict(TestCase):
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
         self.assertEqual(pp.ticker, ticker, "Wrong ticker")
 
+        # Now try loading a different ticker
+        ticker = "TSLA"
+        pp.period = PricePredict.Period1min
+        # We need at least @2000 inputs to train the model
+        # - We can only get 7 Days of data for 1 minute period
+        # - We can get 35 days of data for 5 minute period
+        # - 15min 107 days: Fails - Only pull 35 days (1006 rows)
+        # - 1hour 428 days: Passes
+        days_to_load = int(3000 / PricePredict.PeriodMultiplier[pp.period])
+        # Set the start date to 7 days ag
+        start_date = (datetime.now() - timedelta(days=days_to_load)).strftime("%Y-%m-%d")
+        # Set the end date to today
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        self.assertGreaterEqual(len(data), 1000, "Wrong data length")
+        self.assertEqual(pp.ticker, ticker, "Wrong ticker")
+
     def test_check_for_recent_model(self):
         """
         Place some test files into the model directory and used
@@ -109,7 +126,7 @@ class Test_PricePredict(TestCase):
         :return:
         """
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # Generate a list of 10 random uppercase symbols that
         # represent tickers of 2 to 4 uppercase alpha characters...
@@ -145,7 +162,7 @@ class Test_PricePredict(TestCase):
         # into a list of file paths that start with the 'models/' directory
         model_files = []
         for i in range(10):
-            model_files.append(f"models/{tickers[i]}_{periods[i]}_{start_dates[i]}_{end_dates[i]}.keras")
+            model_files.append(f"{pp.model_dir}/{tickers[i]}_{periods[i]}_{start_dates[i]}_{end_dates[i]}.keras")
         # Create the model files
         for i in range(10):
             with open(model_files[i], 'w') as f:
@@ -184,7 +201,7 @@ class Test_PricePredict(TestCase):
 
     def test_cache_training_data(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # =========================================
         # First we need to create a model file
@@ -255,7 +272,7 @@ class Test_PricePredict(TestCase):
 
     def test_cache_prediction_data(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         ticker = "JD"
         test_ticker = "Test-" + ticker
@@ -296,7 +313,7 @@ class Test_PricePredict(TestCase):
 
     def test_cached_train_predict_report(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         ticker = "BA"
         test_ticker = "Test-" + ticker
@@ -328,7 +345,7 @@ class Test_PricePredict(TestCase):
 
     def test_aggregate_data (self):
         # Create an instance of the price prediction object
-        pp = PricePredict(period='W', model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(period='W', model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # Set the ticker and date range (what we want to pull from yahoo finance)
         ticker = "AAPL"
@@ -351,7 +368,7 @@ class Test_PricePredict(TestCase):
         self.assertEqual(sum_1['Volume'], sum_2['Volume'], "agg_data: Data is incorrect")
 
     def test_augment_data(self):
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
         start_date = "2020-01-01"
         end_date = "2023-12-31"
         data, features = pp.fetch_data_yahoo("AAPL", start_date, end_date)
@@ -367,7 +384,7 @@ class Test_PricePredict(TestCase):
 
     def test_scale_data(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # Load data from Yahoo Finance
         ticker = "AAPL"
@@ -389,7 +406,7 @@ class Test_PricePredict(TestCase):
 
     def test_restore_scale_pred(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # Load data from Yahoo Finance
         ticker = "IBM"
@@ -427,7 +444,7 @@ class Test_PricePredict(TestCase):
 
     def test_load_model(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # =========================================
         # First we need to create a model file
@@ -485,7 +502,7 @@ class Test_PricePredict(TestCase):
 
     def test_prep_model_inputs(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # =========================================
         # First we need to create a model file
@@ -539,7 +556,7 @@ class Test_PricePredict(TestCase):
 
     def test_train_model(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # Set the ticker and date range (what we want to pull from yahoo finance)
         ticker = "TSLA"
@@ -594,7 +611,7 @@ class Test_PricePredict(TestCase):
         # ==============================================================
 
         # Create an instance of the price prediction object
-        pp = PricePredict(period='W', model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(period='W', model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # Set the ticker and date range (what we want to pull from yahoo finance)
         ticker = "TSLA"
@@ -646,7 +663,7 @@ class Test_PricePredict(TestCase):
 
     def test_save_model(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # Load data from Yahoo Finance
         ticker = "AAPL"
@@ -692,10 +709,11 @@ class Test_PricePredict(TestCase):
 
     def test_predict_price(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # Set the ticker and date range (what we want to pull from yahoo finance)
         ticker = "AAPL"
+
         start_date = "2020-01-01"
         end_date = "2023-12-31"
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
@@ -734,8 +752,51 @@ class Test_PricePredict(TestCase):
                             None, None, None,
                              title=title)
 
+        ticker = "TSLA"
+        pp.period = PricePredict.Period1min
+        days_to_load = int(3000 / PricePredict.PeriodMultiplier[pp.period])
+        # Set the start date to 7 days ag
+        start_date = (datetime.now() - timedelta(days=days_to_load)).strftime("%Y-%m-%d")
+        # Set the end date to today
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        self.assertGreaterEqual(len(data), 1000, "data: Wrong length")
+
+        # Augment the data with additional indicators/features
+        aug_data, features, targets, dates_data = pp.augment_data(data, features)
+        self.assertEqual(features, 19, "features: Wrong count")
+        self.assertEqual(1950, len(dates_data), "dates_data: Wrong length")
+        self.assertEqual(1951, len(aug_data), "aug_data: Wrong length")
+
+        # Scale the augmented data
+        scaled_data, scaler = pp.scale_data(aug_data)
+        self.assertEqual(1951, len(scaled_data), "scaled_data: Wrong length")
+        self.assertIsNotNone(scaler, "scaler: is None")
+
+        # Prepare the scaled data for model inputs
+        X, y = pp.prep_model_inputs(scaled_data, features)
+        self.assertEqual(1951 - pp.back_candles, len(X), "X: Wrong length")
+        self.assertEqual(1951 - pp.back_candles, len(y), "y: Wrong length")
+
+        # Use a small batch size and epochs to test the model training
+        pp.epochs = 10
+        pp.batch_size = 5
+        # Train the model
+        model, y_pred, mse = pp.train_model(X, y)
+        self.assertIsNotNone(model, "model: is None")
+        y_pred = pp.predict_price(pp.X_test)
+        # View the test prediction results
+        time = datetime.now()
+        time_str = time.strftime('%Y-%m-%d %H:%M:%S')
+        title = f"test_predict_price: {ticker} -- Period {pp.period} {time_str}"
+        test_close = y[pp.split_limit:, 1]  # Close price
+        pred_close = y_pred[:, 1]  # Predicted close price
+        pp.plot_pred_results(test_close[-len(pred_close):-2], pred_close, None,
+                            None, None, None,
+                             title=title)
+
     def test_adjust_prediction(self):
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
         pp.verbose = True
 
         # Set the ticker and date range (what we want to pull from yahoo finance)
@@ -789,7 +850,7 @@ class Test_PricePredict(TestCase):
 
     def test_save_prediction_chart(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # =========================================
         # First we need to create a model file
@@ -833,7 +894,7 @@ class Test_PricePredict(TestCase):
 
     def test_fetch_train_and_predict(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # Set the ticker and date range (what we want to pull from yahoo finance)
         ticker = "AAPL"
@@ -859,7 +920,7 @@ class Test_PricePredict(TestCase):
 
     def test_fetch_and_predict(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # =========================================
         # First we need to create a model file
@@ -907,7 +968,7 @@ class Test_PricePredict(TestCase):
 
     def test_prediction_analysis(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # =========================================
         # Test the case where there is no prediction data
@@ -962,7 +1023,7 @@ class Test_PricePredict(TestCase):
 
     def test_save_prediction_data(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # Set the ticker and date range (what we want to pull from yahoo finance)
         ticker = "AAPL"
@@ -996,7 +1057,7 @@ class Test_PricePredict(TestCase):
 
     def test_model_report(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # =========================================
         # Perform a model report test...
@@ -1042,8 +1103,8 @@ class Test_PricePredict(TestCase):
 
     def test_periodic_correlation(self):
         # Create an instance of the price prediction object
-        pp1 = PricePredict(period=PricePredict.PeriodDaily, model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
-        pp2 = PricePredict(period=PricePredict.PeriodDaily, model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp1 = PricePredict(period=PricePredict.PeriodDaily, model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
+        pp2 = PricePredict(period=PricePredict.PeriodDaily, model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # Load data from Yahoo Finance
         ticker1 = "AAPL"
@@ -1093,7 +1154,7 @@ class Test_PricePredict(TestCase):
 
     def test_seasonality(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(period=PricePredict.PeriodDaily, model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/')
+        pp = PricePredict(period=PricePredict.PeriodDaily, model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # =========================================
         # First we need to create a model file

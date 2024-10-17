@@ -169,7 +169,16 @@ class PricePredict():
     # Constants
     PeriodWeekly = 'W'
     PeriodDaily = 'D'
-    PeriodValues = [PeriodDaily, PeriodWeekly]
+    Period1hour = '1h'
+    Period5min = '5m'
+    Period1min = '1m'
+    PeriodValues = [PeriodWeekly, PeriodDaily,
+                    Period1hour, Period5min, Period1min]
+
+    # Periods between 5min and 1hour don't have enough data for training.
+    PeriodMultiplier = {Period1hour: 7,
+                        Period5min: 84,
+                        Period1min: 420}
 
     def __init__(self,
                  ticker='',                 # The ticker for the data
@@ -317,6 +326,16 @@ class PricePredict():
         else:
             self.logger.setLevel(log_level)
 
+        # Verify that we can see the chart directory.
+        if not os.path.exists(self.chart_dir):
+            raise RuntimeError(f"*** Exception: Chart directory [{self.chart_dir}] does not exist at [{os.getcwd()}]")
+        # Verify that we can see the model directory.
+        if not os.path.exists(self.model_dir):
+            raise RuntimeError(f"*** Exception: Model directory [{self.model_dir}] does not exist at [{os.getcwd()}]")
+        # Verify that we can see the predictions directory.
+        if not os.path.exists(self.preds_dir):
+            raise RuntimeError(f"*** Exception: Predictions directory [{self.preds_dir}] does not exist at [{os.getcwd()}]")
+
         self.logger.debug(f"=== PricePredict: Initialized.")
 
     def chk_yahoo_ticker(self, ticker):
@@ -381,12 +400,15 @@ class PricePredict():
             self.period = period
 
         if self.Verbose:
-            self.logger.info(f"Loading Data for: {ticker}  from: {date_start} to {date_end}")
+            self.logger.info(f"Loading Data for: {ticker}  from: {date_start} to {date_end}, Period: {self.period}")
 
         # Remove "Test-" from the start of the ticker (used for model testing)
         f_ticker = re.sub(r'^Test-', '', ticker)
         try:
-            data = yf.download(tickers=f_ticker, start=date_start, end=date_end)
+            if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
+                data = yf.download(tickers=f_ticker, start=date_start, end=date_end)
+            else:
+                data = yf.download(tickers=f_ticker, start=date_start, end=date_end, interval=self.period)
         except Exception as e:
             self.logger.error(f"Error: Could not download data for: {ticker}")
             self.logger.error(f"Error: {e}")
@@ -395,6 +417,13 @@ class PricePredict():
         if len(data) == 0:
             self.logger.error(f"Error: No data for {ticker} from {date_start} to {date_end}")
             raise ValueError(f"Error: No data for {ticker} from {date_start} to {date_end}")
+
+        if 'Date' != data.index.name:
+            if 'Datetime' == data.index.name:
+                # Rename the data's index.name to 'Date'
+                data.index.name = 'Date'
+            else:
+                raise ValueError(f"Error: No Date or Datetime in data.index.name for {ticker} from {date_start} to {date_end}")
 
         # Aggregate the data to a weekly period, if nd
         unagg_data = None
@@ -405,15 +434,6 @@ class PricePredict():
             orig_data = wkl_data.copy(deep=True)
             data = wkl_data.copy(deep=True)
 
-        offset = pd.Timedelta(days=-30)
-        # Resample to 'W'eekly or 'ME'(Month End)
-        # logic = {'Open'  : 'first',
-        #          'High'  : 'max',
-        #          'Low'   : 'min',
-        #          'Close' : 'last',
-        #          'Adj Close': 'last',
-        #          'Volume': 'sum'}
-        # data = data.resample('W', offset=offset).apply(logic)
         if self.Verbose:
             self.logger.info(f"data.len(): {len(data)}  data.shape: {data.shape}")
 
@@ -516,6 +536,7 @@ class PricePredict():
 
         # Reset the index of the dataframe.
         data.reset_index(inplace=True)
+
         dates_data = data['Date'].copy()
         data.drop(['Date'], axis=1, inplace=True)
         feature_cnt -= 1
@@ -1141,8 +1162,6 @@ class PricePredict():
         while i <= 3:
             i += 1
             try:
-                working_dir = './'
-                os.chdir(working_dir)
                 # Save the model...
                 model.save(model_path)
             except Exception as e:
@@ -1320,7 +1339,7 @@ class PricePredict():
             last_close = df_plt_test_usd['Close'].iloc[-1]
             last_adj_close = df_plt_test_usd['Adj Close'].iloc[-1]
             last_date = df_plt_test_usd['Date'].iloc[-1]
-            next_date = pd.to_datetime(last_date) + pd.DateOffset(days=1)
+            next_date = pd.to_datetime(last_date) + self.next_pd_DateOffset()
             new_row = {"Date": next_date,
                        "Open": last_close, "High": last_close, "Low": last_close, "Close": last_close,
                        "Adj Close": last_adj_close, "Volume": 0}
@@ -1328,7 +1347,7 @@ class PricePredict():
             last_close = df_plt_test_usd['Adj Close'].iloc[-1]
             last_adj_close = df_plt_test_usd['Adj Close'].iloc[-1]
             last_date = df_plt_test_usd['Date'].iloc[-1]
-            next_date = pd.to_datetime(last_date) + pd.DateOffset(days=1)
+            next_date = pd.to_datetime(last_date) + self.next_pd_DateOffset()
             new_row = {"Date": next_date,
                        "Open": last_close, "High": last_close, "Low": last_close,
                        "Adj Close": last_adj_close, "Volume": 0}
@@ -1408,7 +1427,7 @@ class PricePredict():
 
         # Get the last 'Date' of self.orig_data and add a day to it...
         last_date = df_ohlcv.index[-1]
-        next_date = pd.to_datetime(last_date) + pd.DateOffset(days=1)
+        next_date = pd.to_datetime(last_date) + self.next_pd_DateOffset()
         last_close = df_ohlcv['Close'].iloc[-1]
         last_adj_close = df_ohlcv['Adj Close'].iloc[-1]
         new_row = {'Date': next_date,
@@ -1744,9 +1763,50 @@ class PricePredict():
 
 
         pred_dates = self.date_data
-        pred_dates = pd.Series._append(pred_dates, pd.Series(self.date_data.iloc[-1] + timedelta(days=1)))
+
+        pred_dates = pd.Series._append(pred_dates, pd.Series(self.date_data.iloc[-1] + self.next_timedelta()))
 
         return self.adj_pred, pred_dates
+
+    def next_timedelta(self):
+        time_delta = None
+
+        if self.period == PricePredict.PeriodWeekly:
+            time_delta = timedelta(days=7)
+        elif self.period == PricePredict.PeriodDaily:
+            time_delta = timedelta(days=1)
+        elif self.period == PricePredict.Period1min:
+            time_delta = timedelta(minutes=1)
+        elif self.period == PricePredict.Period5min:
+            time_delta = timedelta(minutes=5)
+        elif self.period == PricePredict.Period15min:
+            time_delta = timedelta(minutes=15)
+        elif self.period == PricePredict.Period30min:
+            time_delta = timedelta(minutes=30)
+        elif self.period == PricePredict.Period1hour:
+            time_delta = timedelta(hours=1)
+
+        return time_delta
+
+    def next_pd_DateOffset(self):
+        pd_date_offset = None
+
+        if self.period == PricePredict.PeriodWeekly:
+            pd_date_offset = pd.DateOffset(weeks=1)
+        elif self.period == PricePredict.PeriodDaily:
+            pd_date_offset = pd.DateOffset(days=1)
+        elif self.period == PricePredict.Period1min:
+            pd_date_offset = pd.DateOffset(minutes=1)
+        elif self.period == PricePredict.Period5min:
+            pd_date_offset = pd.DateOffset(minutes=5)
+        elif self.period == PricePredict.Period15min:
+            pd_date_offset = pd.DateOffset(minutes=15)
+        elif self.period == PricePredict.Period30min:
+            pd_date_offset = pd.DateOffset(minutes=30)
+        elif self.period == PricePredict.Period1hour:
+            pd_date_offset = pd.DateOffset(hours=1)
+
+        return pd_date_offset
 
     def prediction_analysis(self):
         """
@@ -2055,11 +2115,11 @@ class PricePredict():
             data.set_index('Date', inplace=True)
             # Add an additional row to data for the next day's prediction
             last_date = data.index[-1]
-            next_date = last_date + timedelta(days=1)
+            next_date = last_date + self.next_timedelta()
         else:
             # Add an additional row to data for the next day's prediction
             last_date = self.date_data[self.date_data.index[-1]]
-            next_date = last_date + timedelta(days=1)
+            next_date = last_date + self.next_timedelta()
 
         close_col = 'Close'
         if close_col not in data.columns:
