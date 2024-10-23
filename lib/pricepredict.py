@@ -5,8 +5,8 @@ import time
 import ipywidgets as widgets
 import keras
 import math
+import matplotlib as mpl
 import matplotlib.pyplot as plt
-import mplfinance as mfp
 import mplfinance as mpf
 import numpy as np
 import os
@@ -753,8 +753,8 @@ class PricePredict():
             delta_end = abs((_dateEnd - end_dt).days)
             # Check if the model file is within (within_days) days of the input start date and end date.
             if delta_start <= within_days and delta_end <= within_days:
-                # We found a model that matches, so save it off and return True.
-                self.model_path = model_file
+                # We found a model that matches, so save_plot it off and return True.
+                self.model_path = self.model_dir + model_file
                 self.period = period
                 return True
         # No matching model found.
@@ -792,7 +792,7 @@ class PricePredict():
         have_model = self.check_for_recent_model(symbol, dateStart_, dateEnd_, period)
         if have_model and not self.force_training:
             # Load the model
-            self.model = self.load_model(model_path=(self.model_dir + self.model_path))
+            self.model = self.load_model(model_path=(self.model_path))
             self.logger.info(f"Model Loaded: {self.model_path}. Training cache will not be loaded.")
 
         # Allways pull data for seasonality decomposition.
@@ -803,8 +803,12 @@ class PricePredict():
         # Store the date data as a strings so that pydantic can serialize it.
         # It does not do a proper job if the date is a datetime object.
         str_datesData = []
-        for item in self.date_data:
-            str_datesData.append(item.strftime('%Y-%m-%d'))
+        if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
+            for item in self.date_data:
+                str_datesData.append(item.strftime('%Y-%m-%d'))
+        else:
+            for item in self.date_data:
+                str_datesData.append(item.strftime('%Y-%m-%d %H:%M:%S'))
         str_datesData = pd.Series(str_datesData)
 
         # Cache the data
@@ -822,21 +826,6 @@ class PricePredict():
         training_cache.set_item('dates_data', str_datesData.to_json())
         training_cache.set_item('X', list(self.X))
         training_cache.set_item('y', list(self.y))
-
-        # training_cache = dgsDataClass()
-        # training_cache.symbol = symbol
-        # training_cache.dateStart = dateStart_
-        # training_cache.dateEnd = dateEnd_
-        # training_cache.period = period
-        # tc_orig_data = self.orig_data.copy(deep=True)
-        # tc_orig_data.reset_index(inplace=True)
-        # training_cache.data = tc_orig_data.to_json()
-        # training_cache.feature_cnt = self.features
-        # training_cache.data_scaled = list(self.data_scaled)
-        # training_cache.target_cnt = self.targets
-        # training_cache.dates_data = str_datesData.to_json()
-        # training_cache.X = list(self.X)
-        # training_cache.y = list(self.y)
 
         # Save the cached data into this object...
         self.cached_train_data = training_cache
@@ -871,8 +860,12 @@ class PricePredict():
         # Store the date data as a strings so that pydantic can serialize it.
         # It does not do a proper job if the date is a datetime object.
         str_datesData = []
-        for item in self.date_data:
-            str_datesData.append(item.strftime('%Y-%m-%d'))
+        if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
+            for item in self.date_data:
+                str_datesData.append(item.strftime('%Y-%m-%d'))
+        else:
+            for item in self.date_data:
+                str_datesData.append(item.strftime('%Y-%m-%d %H:%M:%S'))
         str_datesData = pd.Series(str_datesData)
 
         # Cache the data
@@ -919,7 +912,10 @@ class PricePredict():
             self.data_scaled = np.array(tc.get_item('data_scaled'))
             self.targets = tc.get_item('target_cnt')
             str_datesData = pd.Series(json.loads(tc.get_item('dates_data')))
-            self.date_data = pd.to_datetime(str_datesData, format='%Y-%m-%d')
+            if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
+                self.date_data = pd.to_datetime(str_datesData, format='%Y-%m-%d')
+            else:
+                self.date_data = pd.to_datetime(str_datesData, format='%Y-%m-%d %H:%M:%S')
             self.X = np.array(tc.get_item('X'))
             self.y = np.array(tc.get_item('y'))
             self.logger.info(f"Training [{self.ticker}] using cached data...")
@@ -952,7 +948,10 @@ class PricePredict():
             self.data_scaled = np.array(pc.get_item('data_scaled'))
             self.targets = pc.get_item('target_cnt')
             str_datesData = pd.Series(json.loads(pc.get_item('dates_data')))
-            self.date_data = pd.to_datetime(str_datesData, format='%Y-%m-%d')
+            if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
+                self.date_data = pd.to_datetime(str_datesData, format='%Y-%m-%d')
+            else:
+                self.date_data = pd.to_datetime(str_datesData, format='%Y-%m-%d %H:%M:%S')
             self.X = np.array(pc.get_item('X'))
             self.y = np.array(pc.get_item('y'))
         except Exception as e:
@@ -962,7 +961,7 @@ class PricePredict():
         # Make Predictions on all the data
         self.split_pcnt = 1.0
         # Perform the prediction
-        # This call will also save the prediction data to this object.
+        # This call will also save_plot the prediction data to this object.
         self.predict_price(self.X)
         # Perform data alignment on the prediction data.
         # Doing so makes use the the prediction deltas rather than the actual values.
@@ -976,7 +975,7 @@ class PricePredict():
         - Save the Seasonality Decomposition to a file or database.
         """
         self.logger.info(f"Performing price prediction for [{self.ticker}] using cached data...")
-        self.save_prediction_chart(last_candles=75)
+        self.gen_prediction_chart(last_candles=75, save_plot=True)
         self.save_prediction_data()
 
         # Save current datetime of the last analysis.
@@ -1043,7 +1042,7 @@ class PricePredict():
         :return:
         """
 
-        self.logger.debug(f"=== Training Model [{self.ticker}] [{self.period}]...")
+        self.logger.info(f"=== Training Model [{self.ticker}] [{self.period}]...")
         # Handle the optional parameters
         if split_pcnt is None:
             split_pcnt = self.split_pcnt
@@ -1119,7 +1118,7 @@ class PricePredict():
         self.dateEnd_pred = pd.to_datetime(self.date_data.iloc[-1]).strftime("%Y-%m-%d")
         self.model = model
 
-        self.logger.debug(f"=== Model Training Completed [{self.ticker}] [{self.period}]...")
+        self.logger.info(f"=== Model Training Completed [{self.ticker}] [{self.period}]...")
 
         return model, y_pred, mse
 
@@ -1179,11 +1178,25 @@ class PricePredict():
         return model, model_path
 
     def predict_price(self, X_data):
+        """
+        Predict the next price.
+        If  X_data is None, then we will fetch the require data from Yahoo Finance and pre-process it.
+        """
+        self.logger.info(f"=== Predicting Price for [{self.ticker}] [{self.period}]...")
 
-        self.logger.debug(f"=== Predicting Price for [{self.ticker}] [{self.period}]...")
+        if X_data is None:
+            data, features = self.fetch_data_yahoo(self.ticker, self.dateStart_pred, self.dateEnd_pred)
+            # Augment the data with additional indicators/features
+            aug_data, features, targets, dates_data = self.augment_data(data, features)
+            # Scale the augmented data
+            scaled_data, scaler = self.scale_data(aug_data)
+            # Prepare the scaled data for model inputs
+            X_data, y = self.prep_model_inputs(scaled_data, features)
+            # Make Predictions on all the data
+            self.split_pcnt = 1.0
 
-        # Test the model
         try:
+            # Perform the prediction
             y_pred = self.model.predict(X_data, verbose=self.keras_verbosity)
         except Exception as e:
             self.logger.error(f"Error: Predicting Price: {e}")
@@ -1213,12 +1226,11 @@ class PricePredict():
 
     def adjust_prediction(self):
         """
-        Calculate the delta between actual price and prediction
-        Bring the prediction closer to the price based on the delta
-        This is used on scaled and scale-restored data.
-        :param y_test:       # The actual prices
-        :param y_pred:       # The predicted prices
-        :param avg_win:      # The moving average window
+        The adjusted prediction leverages the deltas between the predicted values
+        and pins the delta to the prior actual close, high, and low values, rather
+        than pining the prediction to the prior predicted value.
+        This results in predictions that do not wander from the actual price action.
+
         :return y_p_adj,     # The adjusted prediction
                 y_p_delta:   # The deltas between the actual price and the prediction
         """
@@ -1286,10 +1298,13 @@ class PricePredict():
 
         return pred_adj_close, pred_adj_high, pred_adj_low
 
-    def save_prediction_chart(self, file_path=None, last_candles=50):
+    def gen_prediction_chart(self, last_candles=50,
+                             file_path=None,
+                             save_plot=False, show_plot=True):
 
         if file_path is None or file_path == '':
-            file_path = self.chart_dir + self.ticker + f"_{self.period}_" + self.dateEnd_pred + ".png"
+            last_date = self.date_data.iloc[-1]
+            file_path = self.chart_dir + self.ticker + f"_{self.period}_{last_date}.png"
             self.chart_path = file_path
         if file_path is None or file_path == '':
             self.logger.error("Error: file_path is empty.")
@@ -1318,10 +1333,16 @@ class PricePredict():
         df_plt_test_usd.insert(0, 'Date', plt_date)
 
         # Setup the OHLCV data for the plot...
-        plt_ohlcv = self.orig_data.iloc[split_start:, [0, 1, 2, 3, 4, 5, 6]].copy()
+        if self.orig_data.shape[1] == 7:
+            plt_ohlcv = self.orig_data.iloc[split_start:, [0, 1, 2, 3, 4, 5, 6]].copy()
+        else:
+            plt_ohlcv = self.orig_data.iloc[split_start:, [0, 1, 2, 3, 4, 5]].copy()
         if len(plt_ohlcv) <= 0:
             # Handle the side effect of dealing with data from the prediction cache...
-            plt_ohlcv = self.orig_data.iloc[:, [0, 1, 2, 3, 4, 5, 6]].copy()
+            if self.orig_data.shape[1] == 7:
+                plt_ohlcv = self.orig_data.iloc[:, [0, 1, 2, 3, 4, 5, 6]].copy()
+            else:
+                plt_ohlcv = self.orig_data.iloc[:, [0, 1, 2, 3, 4, 5]].copy()
 
         ohlcv = plt_ohlcv.copy()
         ohlcv.reset_index()
@@ -1362,7 +1383,7 @@ class PricePredict():
             # Rename 'Adj Close' to 'Close' for the plot...
             df_plt_test_usd.rename(columns={'Adj Close': 'Close'}, inplace=True)
 
-        title = (f'Ticker: {ticker} -- Period[ {self.period}] -- {self.dateStart_pred} to {self.dateEnd_pred}\n'
+        title = (f'Ticker: {ticker} -- Period[ {self.period}] -- {self.dateStart_pred} to {last_date}\n'
                  f'Predictions High: {self.adj_pred_high[-1].round(2)}  Close: {self.adj_pred_close[-1].round(2)}  Low: {self.adj_pred_low[-1].round(2)}')
         kwargs = dict(type='candle', volume=True, figratio=(11, 6), figscale=2, warn_too_much_data=10000, title=title)
 
@@ -1394,14 +1415,22 @@ class PricePredict():
             preds.append(mpf.make_addplot(trend[-min_len:], ylabel='Trend',
                                           type='line', linestyle='-.', panel=2, color='green', secondary_y=True))
 
-        save = dict(fname=file_path, dpi=300, pad_inches=0.25)
+        save_dict = dict(fname=file_path, dpi=300, pad_inches=0.25)
+
         df_plt_test_usd.ffill(inplace=True)
-        try:
-            fig, axis = mpf.plot(df_plt_test_usd[-min_len:], **kwargs,
-                                 style='binance', addplot=preds, savefig=save,
-                                 returnfig=True)
-        except Exception as e:
-            self.logger.error(f"Error: Could not plot chart. {e}")
+        if show_plot:
+            try:
+                if save_plot:
+                    fig, axis = mpf.plot(df_plt_test_usd[-min_len:], **kwargs,
+                                         style='binance', addplot=preds,
+                                         savefig=save_dict, returnfig=True)
+                elif show_plot:
+                    # For the interactive plot to show up, import mplfinance
+                    # at the top of the script (or global level).
+                    mpf.plot(df_plt_test_usd[-min_len:], **kwargs,
+                             style='binance', addplot=preds)
+            except Exception as e:
+                self.logger.error(f"Error: Could not plot chart. {e}")
 
         return file_path
 
@@ -1479,18 +1508,18 @@ class PricePredict():
 
         file_paths = []
 
-        # We can limit the number of candles to save if requested...
+        # We can limit the number of candles to save_plot if requested...
         if last_candles is not None and len(df) > last_candles:
             df = df.tail(last_candles)
 
-        # == Create the file-path to save the prediction data...
+        # == Create the file-path to save_plot the prediction data...
         file_path = self.preds_dir + self.ticker + "_" + self.dateEnd_pred + ".csv"
         self.preds_path = file_path
         try:
             # Save the prediction data to a CSV file...
             df.to_csv(file_path, index=False)
         except Exception as e:
-            self.logger.error(f"Error: Could not save prediction data to:{file_path}")
+            self.logger.error(f"Error: Could not save_plot prediction data to:{file_path}")
             self.logger.error("Exception: {e}")
 
         self.preds_path = file_path
@@ -1506,7 +1535,7 @@ class PricePredict():
             with open(file_path, 'w') as f:
                 f.write(json.dumps(self.analysis))
         except Exception as e:
-            self.logger.error(f"Error: Could not save analysis data to: {file_path}")
+            self.logger.error(f"Error: Could not save_plot analysis data to: {file_path}")
             self.logger.error("Exception: {e}")
         self.analysis_path = file_path
         file_paths.append(file_path)
@@ -1690,9 +1719,12 @@ class PricePredict():
 
         # TODO: Load a 'W'eekly model
 
-        if model_path is None:
+        if model_path is None and self.model_path is None:
             self.logger.error("Error: The model_path parameter is required.")
             raise ValueError("Error: The model_path parameter is required.")
+        else:
+            model_path = self.model_path
+
         if date_start is None or date_end is None:
             self.logger.error("Error: The date_start and date_end parameters is required.")
             raise ValueError("Error: The date_start and date_end parameters is required.")
@@ -1779,10 +1811,10 @@ class PricePredict():
             time_delta = timedelta(minutes=1)
         elif self.period == PricePredict.Period5min:
             time_delta = timedelta(minutes=5)
-        elif self.period == PricePredict.Period15min:
-            time_delta = timedelta(minutes=15)
-        elif self.period == PricePredict.Period30min:
-            time_delta = timedelta(minutes=30)
+        # elif self.period == PricePredict.Period15min:
+        #     time_delta = timedelta(minutes=15)
+        # elif self.period == PricePredict.Period30min:
+        #     time_delta = timedelta(minutes=30)
         elif self.period == PricePredict.Period1hour:
             time_delta = timedelta(hours=1)
 
@@ -1799,10 +1831,6 @@ class PricePredict():
             pd_date_offset = pd.DateOffset(minutes=1)
         elif self.period == PricePredict.Period5min:
             pd_date_offset = pd.DateOffset(minutes=5)
-        elif self.period == PricePredict.Period15min:
-            pd_date_offset = pd.DateOffset(minutes=15)
-        elif self.period == PricePredict.Period30min:
-            pd_date_offset = pd.DateOffset(minutes=30)
         elif self.period == PricePredict.Period1hour:
             pd_date_offset = pd.DateOffset(hours=1)
 
@@ -1936,7 +1964,7 @@ class PricePredict():
                 'pred_last_delta': f'{self.pred_last_delta}',
                 'pred_rank': f'{self.pred_rank}'}
 
-            self.pred_strength = round((self.pred_rank + (self.season_rank * self.season_corr)) / 2, 4)
+            self.pred_strength = round((self.pred_rank + (self.season_rank * self.season_corr)) / 6, 4)
             analysis['pred_strength'] = {
                 'strength': f'{self.pred_strength}'}
 
@@ -1968,18 +1996,18 @@ class PricePredict():
         plt.figure(figsize=(16, 8))
         # Acj Close
         if target_close is not None:
-            plt.plot(target_close, color='black', label='Target Close', marker='.')
+            plt.plot(target_close, color='black', label='Target Close', linestyle='-')
         # Original Prediction
         if target_high is not None:
-            plt.plot(target_high[1:], color='blue', label='Target High', marker='1')
+            plt.plot(target_high[1:], color='yellow', label='Target High', linestyle='-')
         if target_low is not None:
-            plt.plot(target_low[1:], color='red', label='Target Low', marker='1')
+            plt.plot(target_low[1:], color='red', label='Target Low', linestyle='-')
         if adj_pred_close is not None:
-            plt.plot(adj_pred_close[1:], color='green', label='Adj Close', linestyle='-.', marker='o')
+            plt.plot(adj_pred_close[1:], color='orange', label='Adj Close', linestyle='-')
         if adj_pred_high is not None:
-            plt.plot(adj_pred_high[1:], color='violet', label='Adj High', linestyle='-.', marker='o')
+            plt.plot(adj_pred_high[1:], color='blue', label='Adj High', linestyle='-')
         if adj_pred_low is not None:
-            plt.plot(adj_pred_low[1:], color='orange', label='Adj Low', linestyle='-.', marker='o')
+            plt.plot(adj_pred_low[1:], color='pink', label='Adj Low', linestyle='-')
         if title != '':
             plt.title(title)
         plt.legend()
@@ -2011,6 +2039,8 @@ class PricePredict():
         if abs((datetime.strptime(self.date_end, "%Y-%m-%d") - datetime.strptime(ppo.date_end, "%Y-%m-%d")).days) > 3:
             self.logger.info(f"End dates must be within 3 days of each other. self[{self.ticker} {self.date_end}] != ppd[{ppo.ticker} {ppo.date_end}]")
             return None
+
+        # self.logger.debug(f"Calculating correlation between {self.ticker} and {ppo.ticker}")
 
         # Get the smaller of the end dates between self and ppo
         target_end_date = min(self.date_end, ppo.date_end)
@@ -2053,6 +2083,17 @@ class PricePredict():
         # Calculate the correlation
         try:
             corr_list = [self_trends[i] + ppo_trends[i] for i in range(len(self_trends))]
+            # Concatinage self_trends with ppo_trends into one dataframe whose columns are stock_a and stock_b
+            corr_df = pd.DataFrame({'stock_a': self_trends, 'stock_b': ppo_trends})
+            normalized_df = (corr_df - corr_df.mean()) / corr_df.std()
+            # Createa a correlation matrix
+            pearson_corr_matrix = normalized_df.corr(method='pearson')
+            spearman_corr_matrix = corr_df.corr(method='spearman')
+            kendall_corr_matrix = corr_df.corr(method='kendall')
+            # Get the correlation values
+            pearson_corr = pearson_corr_matrix.loc['stock_a']['stock_b']
+            spearman_corr = spearman_corr_matrix.loc['stock_a']['stock_b']
+            kendall_corr = kendall_corr_matrix.loc['stock_a']['stock_b']
         except Exception as e:
             self.logger.error(f"Error: {e}")
             self.logger.error(f"self.ticker:{self.ticker}-len:{len(self_trends)} ppo.ticker:{ppo.ticker}-len:{len(ppo_trends.shape)}")
@@ -2063,13 +2104,17 @@ class PricePredict():
         uncorrelated_days = corr_list.count(0)
         pct_corr = correlated_days / total_days
         pct_uncorr = uncorrelated_days / total_days
-        self.logger.info(f"Days: {total_days} Correlated Days: {correlated_days}  Uncorrelated Days: {uncorrelated_days}")
-        self.logger.info(f"Correlated Days: {pct_corr}%  Uncorrelated Days: {pct_uncorr}%")
+        # self.logger.info(f"Days: {total_days} Correlated Days: {correlated_days}  Uncorrelated Days: {uncorrelated_days}")
+        # self.logger.info(f"Correlated Days: {pct_corr}%  Uncorrelated Days: {pct_uncorr}%")
         ret_dict = {'total_days': total_days,
                     'correlated_days': correlated_days,
                     'uncorrelated_days': uncorrelated_days,
                     'pct_corr': pct_corr,
-                    'pct_uncorr': pct_uncorr}
+                    'pct_uncorr': pct_uncorr,
+                    'pearson_corr': pearson_corr,
+                    'spearman_corr': spearman_corr,
+                    'kendall_corr': kendall_corr,
+                    'avg_corr': (pearson_corr + spearman_corr + kendall_corr) / 3}
 
         return ret_dict
 

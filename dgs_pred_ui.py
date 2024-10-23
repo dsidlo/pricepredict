@@ -161,7 +161,7 @@ def main(message):
         if hasattr(st.session_state, 'bAddGroups'):
             if st.session_state.bAddGroups and st.session_state.tiNewGrp != '':
                 new_grps = ti_addNewGrp
-                new_grps = re.split(r'[\s,;:]+', new_grps)
+                new_grps = re.split(r'[\s,;]+', new_grps)
                 added_grps = []
                 if hasattr(st.session_state, 'ss_GroupsList'):
                     curr_grps = st.session_state[ss_GroupsList]
@@ -263,7 +263,7 @@ def main(message):
         if bAddNewSyms and ti_addNewSyms != '':
             # Split on new_sym on spaces, colon, semicolon and commas
             new_syms = ti_addNewSyms
-            new_syms = re.split(r'[\s,;:]+', new_syms)
+            new_syms = re.split(r'[\s,;]+', new_syms)
             if new_syms[0] != '':
                 add_new_symbols(st, exp_sym, new_syms)
                 st.session_state[ss_DfSym] = update_viz_data(st, st.session_state[ss_AllDfSym])
@@ -491,10 +491,12 @@ def st_dataframe_widget(exp_sym, ss_DfSym, df_sel_mode, sym_col):
     st.session_state[ss_DfSym]['Groups'] = st.session_state[ss_DfSym]['Groups'].fillna('')
     st.session_state[ss_DfSym] = st.session_state[ss_DfSym].ffill()
     st.session_state[ss_DfSym] = st.session_state[ss_DfSym].bfill()
-    df_symbols = st.session_state[ss_DfSym].copy()
+    if 'st_dataframe.df_sym' in st.session_state:
+        st.session_state['st_dataframe.df_sym'] = None
+    # df_symbols = st.session_state[ss_DfSym].copy()
+    df_symbols = st.session_state[ss_DfSym]
     df_styled = df_symbols.style.format({'WklyPrdStg': '{:,.4f}',
                                          'DlyPrdStg': '{:,.4f}'})
-    # df_styled = st.session_state[ss_DfSym]
     df_sym = st.dataframe(df_styled, key="dfSymbols", height=600,
                           column_order=["Symbol", "Groups", "Trend",
                                         "WklyPrdStg", "DlyPrdStg"],
@@ -505,6 +507,7 @@ def st_dataframe_widget(exp_sym, ss_DfSym, df_sel_mode, sym_col):
                                          "DlyPrdStg": {"max_width": 5}},
                           selection_mode=df_sel_mode, on_select=on_select, hide_index=True)
     sym_col.append(df_sym.selection)
+    st.session_state['st_dataframe.df_sym'] = df_sym
     # Display Chosen Symbol's Chart & Data ========================
     if hasattr(df_sym.selection, 'rows') and len(df_sym.selection.rows) > 0:
         # We have a selected symbol so display the symbol's chart
@@ -766,6 +769,8 @@ def display_symbol_charts():
             st.markdown(f"### Weekly Chart")
             sym_indx = img_sym + "_" + 'W'
             w_img_file = 'charts/' + st.session_state['sym_charts'][sym_indx]
+            if img_sym not in w_img_file:
+                w_img_file = get_sym_image_file(img_sym, 'W')
             if w_img_file is not None:
                 if today not in w_img_file:
                     st.markdown("#### *** Chart May Not Be Current ***")
@@ -792,6 +797,8 @@ def display_symbol_charts():
             st.markdown(f"### Daily Chart")
             sym_indx = img_sym + "_" + 'D'
             d_img_file = 'charts/' + st.session_state['sym_charts'][sym_indx]
+            if img_sym not in d_img_file:
+                d_img_file = get_sym_image_file(img_sym, 'D')
             if d_img_file is not None:
                 if today not in d_img_file:
                     st.markdown("#### *** Chart May Not Be Current ***")
@@ -874,7 +881,7 @@ def display_symbol_charts():
                                 expdr_biz.markdown(f"**{key}**: {ticker_data[key]}")
                     else:
                         st.markdown(f"**No Data Ticker Data Available**")
-    # As needed, save out the updated DataFrames and PricePredict objects
+    # As needed, save_plot out the updated DataFrames and PricePredict objects
     all_df_symbols = st.session_state[ss_AllDfSym]
     if len(all_df_symbols.columns) == import_cols_full:
         # Create a list of all symbols in the DataFrame all_df_symbols
@@ -894,6 +901,23 @@ def display_symbol_charts():
             logger.info("DataFrames and PricePredict objects saved")
     else:
         logger.error(f"Error all_df_symbols has too many columns [{len(all_df_symbols)}]: {all_df_symbols.columns}")
+
+
+def get_sym_image_file(sym, period, path):
+    today = time.strftime("%Y-%m-%d")
+    img_file = f"{path}/{sym}_{period}_{today}.png"
+    if os.path.isfile(img_file):
+        return img_file
+    else:
+        # Find the most recent image file for the symbol
+        files = os.listdir(path)
+        # Isolate files that contain the symbol and period
+        files = [file for file in files if sym in file and period in file]
+        files.sort(reverse=True)
+        for file in files:
+            if sym in file and period in file:
+                return f"{path}/{file}"
+    return None
 
 
 # ======================================================================
@@ -1395,6 +1419,9 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
             if target_sym.orig_data is not None:
                 len_ = len(target_sym.orig_data)
             logger.info(f"target_sym[{target_sym.ticker} {target_sym.period}] [{len_}] has less than {min_data_points} data points.")
+            # Change the last_analysis date to 5 days ago to force an update on the next analysis run.
+            five_days_ago = datetime.now() - timedelta(days=5)
+            target_sym.last_analysis = five_days_ago
             continue
 
         for ssym in sym_dpps.keys():
@@ -1423,11 +1450,15 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
         if sym_corr[ts] is None:
             logger.debug(f"Symbol Correlation (sym_corr) for [{ts}] is None")
             continue
-        corrs.append((ts, (round(sym_corr[ts]['pct_corr'], 5),
+        # corrs.append((ts, (round(sym_corr[ts]['pct_corr'], 5),
+        #                    round(sym_corr[ts]['pct_uncorr'], 5))))
+        corrs.append((ts, (round(sym_corr[ts]['avg_corr'], 5),
                            round(sym_corr[ts]['pct_uncorr'], 5))))
     # Sort the correlations by the pct_uncorr value
+    # srt_corrs = sorted(corrs, key=lambda tup: tup[1][0], reverse=True)
+    # srt_xcorrs = sorted(corrs, key=lambda tup: tup[1][1], reverse=True)
     srt_corrs = sorted(corrs, key=lambda tup: tup[1][0], reverse=True)
-    srt_xcorrs = sorted(corrs, key=lambda tup: tup[1][1], reverse=True)
+    srt_xcorrs = sorted(corrs, key=lambda tup: tup[1][0], reverse=False)
     # For each symbol, get the top 10 correlations
     item_cnt = len(sym_dpps)
     i = 0
