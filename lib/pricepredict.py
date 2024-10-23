@@ -933,7 +933,9 @@ class PricePredict():
                                 date_end=self.dateEnd_train)
 
         # At this point, we have loaded a model.
+        self.cached_predict_report()
 
+    def cached_predict_report(self):
         # Load the cached prediction
         pc = self.cached_pred_data
         if pc is None:
@@ -1964,7 +1966,7 @@ class PricePredict():
                 'pred_last_delta': f'{self.pred_last_delta}',
                 'pred_rank': f'{self.pred_rank}'}
 
-            self.pred_strength = round((self.pred_rank + (self.season_rank * self.season_corr)) / 6, 4)
+            self.pred_strength = round((self.pred_rank + (self.season_rank * self.season_corr)) / 20, 4)
             analysis['pred_strength'] = {
                 'strength': f'{self.pred_strength}'}
 

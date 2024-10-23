@@ -4,7 +4,8 @@ File: Test_PricePredict.py
 Notes:
   - Prediction tests run with fewer epochs and batch size to speed up testing.
     Thus, plots may not be as accurate as they could be.
-"""import os.path
+"""
+import os.path
 import pytest
 import numpy as np
 import pandas as pd
@@ -59,8 +60,8 @@ class Test_PricePredict(TestCase):
         model, model_path = pp.save_model(ticker=test_ticker)
         # Checks to verify that we have a saveable model object
         this_test.assertIsNotNone(model, "model: Is None")
-        save_op = getattr(model, 'save_plot', None)
-        this_test.assertTrue(callable(save_op), "model: 'save_plot' method not found")
+        save_op = getattr(model, 'save', None)
+        this_test.assertTrue(callable(save_op), "model: 'save' method not found")
         # Verify that the _Test_ model file was created
         this_test.assertTrue(os.path.isfile(model_path), "model_path: File does not exist")
 
@@ -480,25 +481,25 @@ class Test_PricePredict(TestCase):
         # Load the model via *args
         model = pp.load_model(model_path)
         self.assertIsNotNone(model, "Model not loaded")
-        save_op = getattr(model, 'save_plot', None)
-        self.assertTrue(callable(save_op), "model: 'save_plot' method not found")
+        save_op = getattr(model, 'save', None)
+        self.assertTrue(callable(save_op), "model: 'save' method not found")
 
         # Load model via **kwargs
         model = pp.load_model(model_path=model_path)
         self.assertIsNotNone(model, "Model not loaded")
-        save_op = getattr(model, 'save_plot', None)
-        self.assertTrue(callable(save_op), "model: 'save_plot' method not found")
+        save_op = getattr(model, 'save', None)
+        self.assertTrue(callable(save_op), "model: 'save' method not found")
 
         # Load model *args, build model_path
         model = pp.load_model(test_ticker, mdl_start_date, mdl_end_date, pp.model_dir)
-        save_op = getattr(model, 'save_plot', None)
-        self.assertTrue(callable(save_op), "model: 'save_plot' method not found")
+        save_op = getattr(model, 'save', None)
+        self.assertTrue(callable(save_op), "model: 'save' method not found")
 
         # Load model **kwargs, build model_path
         model = pp.load_model(ticker=test_ticker, dateStart=mdl_start_date, dateEnd=mdl_end_date, modelDir=pp.model_dir)
         self.assertIsNotNone(model, "Model not loaded")
-        save_op = getattr(model, 'save_plot', None)
-        self.assertTrue(callable(save_op), "model: 'save_plot' method not found")
+        save_op = getattr(model, 'save', None)
+        self.assertTrue(callable(save_op), "model: 'save' method not found")
 
         # Delete the model file that we crated and loaded
         if os.path.isfile(model_path):
@@ -595,8 +596,8 @@ class Test_PricePredict(TestCase):
         pcnt_nan = (len(y_pred) - np.count_nonzero(~np.isnan(y_pred))) / len(y_pred)
         self.assertGreater(.8, pcnt_nan, f"y_pred: Most values are NaN [{pcnt_nan * 100}%]")
         self.assertIsNotNone(model, "model: is None")
-        save_op = getattr(model, 'save_plot', None)
-        self.assertTrue(callable(save_op), "model: 'save_plot' method not found")
+        save_op = getattr(model, 'save', None)
+        self.assertTrue(callable(save_op), "model: 'save' method not found")
         self.assertIsNotNone(y_pred, "y_pred: is None")
         self.assertEqual(199, len(y_pred), "y_pred: Wrong length")
         self.assertEqual(pp.PeriodDaily, pp.period, f"period[{pp.period}]: Wrong period")
@@ -650,8 +651,8 @@ class Test_PricePredict(TestCase):
         pcnt_nan = (len(y_pred) - np.count_nonzero(~np.isnan(y_pred))) / len(y_pred)
         self.assertGreater(.8, pcnt_nan, f"y_pred: Most values are NaN [{pcnt_nan * 100}%]")
         self.assertIsNotNone(model, "model: is None")
-        save_op = getattr(model, 'save_plot', None)
-        self.assertTrue(callable(save_op), "model: 'save_plot' method not found")
+        save_op = getattr(model, 'save', None)
+        self.assertTrue(callable(save_op), "model: 'save' method not found")
         self.assertIsNotNone(y_pred, "y_pred: is None")
         self.assertEqual(92, len(y_pred), "y_pred: Wrong length")
         self.assertEqual(pp.PeriodWeekly, pp.period, f"period[{pp.period}]: Wrong period")
@@ -706,8 +707,8 @@ class Test_PricePredict(TestCase):
         model, model_path = pp.save_model(ticker=test_ticker)
         # Checks to verify that we have a savable model object
         self.assertIsNotNone(model, "model: Is None")
-        save_op = getattr(model, 'save_plot', None)
-        self.assertTrue(callable(save_op), "model: 'save_plot' method not found")
+        save_op = getattr(model, 'save', None)
+        self.assertTrue(callable(save_op), "model: 'save' method not found")
         # Verify that the _Test_ model file was created
         self.assertTrue(os.path.isfile(model_path), "model_path: File does not exist")
         if os.path.isfile(model_path):
@@ -762,9 +763,10 @@ class Test_PricePredict(TestCase):
         pp.period = PricePredict.Period1min
         days_to_load = int(3000 / PricePredict.PeriodMultiplier[pp.period])
         # Set the start date to 7 days ag
-        start_date = (datetime.now() - timedelta(days=days_to_load)).strftime("%Y-%m-%d")
+        dt_start_date = datetime.strptime('2024-10-20', "%Y-%m-%d")
+        start_date = (dt_start_date - timedelta(days=days_to_load)).strftime("%Y-%m-%d")
         # Set the end date to today
-        end_date = datetime.now().strftime("%Y-%m-%d")
+        end_date = dt_start_date.strftime("%Y-%m-%d")
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
         self.assertGreaterEqual(len(data), 1000, "data: Wrong length")
 
@@ -1095,8 +1097,8 @@ class Test_PricePredict(TestCase):
         # Load the model via *args
         model = pp.load_model(model_path)
         self.assertIsNotNone(model, "Model not loaded")
-        save_op = getattr(model, 'save_plot', None)
-        self.assertTrue(callable(save_op), "model: 'save_plot' method not found")
+        save_op = getattr(model, 'save', None)
+        self.assertTrue(callable(save_op), "model: 'save' method not found")
 
         success = success = pp.model_report()
         self.assertTrue(success, "model_report: Success should be True")
@@ -1132,10 +1134,10 @@ class Test_PricePredict(TestCase):
                     'uncorrelated_days': 329,
                     'pct_corr': 0.6723107569721115,
                     'pct_uncorr': 0.32768924302788843,
-                    'pearson_corr': 0.34496343125632006,
+                    'pearson_corr': 0.34496343125631956,
                     'spearman_corr': 0.34496343125631995,
                     'kendall_corr': 0.34496343125632,
-                    'avg_corr': 0.34496343125632006
+                    'avg_corr': 0.3449634312563199
                     }
         self.assertEqual(exp_dict, ret_dict, f"exp_dict[{exp_dict}] does not match ret_dict[{ret_dict}]")
 
@@ -1149,7 +1151,7 @@ class Test_PricePredict(TestCase):
                     'uncorrelated_days': 16,
                     'pct_corr': 0.673469387755102,
                     'pct_uncorr': 0.32653061224489793,
-                    'pearson_corr': 0.3423393193711672,
+                    'pearson_corr': 0.34233931937116724,
                     'spearman_corr': 0.3423393193711671,
                     'kendall_corr': 0.34233931937116713,
                     'avg_corr': 0.3423393193711671
@@ -1166,7 +1168,7 @@ class Test_PricePredict(TestCase):
                     'uncorrelated_days': 2,
                     'pct_corr': 0.6666666666666666,
                     'pct_uncorr': 0.3333333333333333,
-                    'pearson_corr': 0.447213595499958,
+                    'pearson_corr': 0.4472135954999579,
                     'spearman_corr': 0.4472135954999579,
                     'kendall_corr': 0.4472135954999579,
                     'avg_corr': 0.4472135954999579

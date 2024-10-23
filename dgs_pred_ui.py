@@ -249,7 +249,7 @@ def main(message):
             # "await" causes the block. Can we run this in a fragment?
             prog_bar = exp_sym.progress(0, "Analyzing Symbols")
             # await analyze_symbols(prog_bar, st.session_state[ss_DfSym])
-            analyze_symbols(st, prog_bar, st.session_state[ss_DfSym])
+            analyze_symbols(st, prog_bar, st.session_state[ss_DfSym], force_training=ss_forceTraining)
 
         elif 'prog_bar' in locals():
             prog_bar.empty()
@@ -925,7 +925,7 @@ def get_sym_image_file(sym, period, path):
 # Analyze the symbols in the DataFrame, in a separate thread.
 # ======================================================================
 # async def analyze_symbols(prog_bar, df_symbols):
-def analyze_symbols(st, prog_bar, df_symbols, imported_syms=None):
+def analyze_symbols(st, prog_bar, df_symbols, imported_syms=None, force_training=False):
     logger.info("*** Analyzing Symbols: Started ***")
     all_df_symbols = st.session_state[ss_AllDfSym]
     total_syms = all_df_symbols.shape[0]
@@ -1001,7 +1001,7 @@ def analyze_symbols(st, prog_bar, df_symbols, imported_syms=None):
                 logger.info(f"Daily - Train and Predict: {row.Symbol}")
                 # future = executor.submit(task_train_predict_report, row.Symbol, ppd)
                 # futures.append(future)
-                tm.submit(task_train_predict_report, row.Symbol, ppd)
+                tm.submit(task_train_predict_report, row.Symbol, ppd, force_training=force_training)
                 total_syms += 1
             except Exception as e:
                 logger.error(f"Error pull-train-predict on symbol: {row.Symbol}\n{e}")
@@ -1229,11 +1229,10 @@ def task_pull_data(symbol_, dpp):
     return symbol_, dpp
 
 
-def task_train_predict_report(symbol_, dpp):
+def task_train_predict_report(symbol_, dpp, force_training=False):
     # Get datetime 24 hours ago
     ago24hrs = datetime.now() - timedelta(days=1)
 
-    logger.info(f"Training and predicting for {symbol_}...")
     if dpp.last_analysis is not None:
         if dpp.last_analysis > ago24hrs:
             logger.info(f"PricePredict object is already updodate: {symbol_}")
@@ -1242,8 +1241,15 @@ def task_train_predict_report(symbol_, dpp):
     # - Trains and Saves a new model if needed
     # - Performs the prediction on the cached prediction data
     # - Generates the required charts and database updates
-    dpp.cached_train_predict_report()
-    logger.info(f"Completed training and predicting for {symbol_}...")
+    if force_training:
+        logger.info(f"Training and predicting for {symbol_}...")
+        dpp.cached_train_predict_report()
+        logger.info(f"Completed training and predicting for {symbol_}...")
+    else:
+        logger.info(f"Predicting for {symbol_}...")
+        dpp.cached_predict_report()
+        logger.info(f"Completed predicting for {symbol_}...")
+
     return symbol_, dpp
 
 
@@ -1306,18 +1312,18 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
                 elif 'shortName' in pp.ticker_data:
                     lname = pp.ticker_data['shortName']
                 all_df_symbols.loc[indx, 'LongName'] = lname
-            trend = 'D:'
+            d_trend = 'D:'
             if pp.pred_strength is not None:
                 if abs(pp.pred_strength) < 0.5:
-                    trend += 'f'
+                    d_trend += 'f'
                 elif pp.pred_strength < 0:
-                    trend += 'd'
+                    d_trend += 'd'
                 else:
-                    trend += 'u'
+                    d_trend += 'u'
             else:
-                trend += '_'
+                d_trend += '_'
 
-            all_df_symbols.loc[indx, 'Trend'] = trend
+            all_df_symbols.loc[indx, 'Trend'] = d_trend
             prd_strg = pp.pred_strength
             if prd_strg is None:
                 prd_strg = 0
@@ -1350,18 +1356,18 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
                 elif 'shortName' in pp.ticker_data:
                     lname = pp.ticker_data['shortName']
                 all_df_symbols.loc[indx, 'LongName'] = lname
-            trend = all_df_symbols[all_df_symbols.Symbol == sym]['Trend'].values[0] + ' - W:'
+            w_trend = 'W:'
             if pp.pred_strength is not None:
                 if abs(pp.pred_strength) < 0.5:
-                    trend += 'f'
+                    w_trend += 'f'
                 elif pp.pred_strength < 0:
-                    trend += 'd'
+                    w_trend += 'd'
                 else:
-                    trend += 'u'
+                    w_trend += 'u'
             else:
-                trend += '_'
+                w_trend += '_'
 
-            all_df_symbols.loc[indx, 'Trend'] = trend
+            all_df_symbols.loc[indx, 'Trend'] = w_trend + ' - ' + all_df_symbols.loc[indx, 'Trend'].values[0]
             prd_strg = pp.pred_strength
             if prd_strg is None:
                 prd_strg = 0
