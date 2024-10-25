@@ -18,7 +18,10 @@ Note: All local variable are initialized in on .reset('app') method.
       Keep all required variables in the session_state object.
 """
 
+import line_profiler
+from line_profiler import profile, LineProfiler
 import os
+import sys
 import json
 import time
 import streamlit as st
@@ -94,6 +97,7 @@ import_cols_full = 10
 # Main Window ==========================================================
 # The main window displays the charts and data for the selected symbol.
 # ======================================================================
+@profile
 def main(message):
 
     logger.info(f"*** {message} ***")
@@ -152,6 +156,14 @@ def main(message):
         if ss_GroupsList not in st.session_state:
             st.session_state[ss_GroupsList] = []
         # Add Expander for adding and removing groupings
+        st.button("End Program", key='bEndProgram')
+        if st.session_state.bEndProgram:
+            create_charts_dict(st)
+            charts_cleanup(st, PricePredict.PeriodDaily)
+            charts_cleanup(st, PricePredict.PeriodWeekly)
+            st.success("Program Ended")
+            st.stop()
+
         exp_grps = st.expander("Add/Remove Groups", expanded=False)
         st.session_state['exp_grps'] = exp_grps
         col_add_grp1, col_add_grp2 = exp_grps.columns(2)
@@ -494,10 +506,13 @@ def st_dataframe_widget(exp_sym, ss_DfSym, df_sel_mode, sym_col):
     if 'st_dataframe.df_sym' in st.session_state:
         st.session_state['st_dataframe.df_sym'] = None
     # df_symbols = st.session_state[ss_DfSym].copy()
-    df_symbols = st.session_state[ss_DfSym]
-    df_styled = df_symbols.style.format({'WklyPrdStg': '{:,.4f}',
-                                         'DlyPrdStg': '{:,.4f}'})
-    df_sym = st.dataframe(df_styled, key="dfSymbols", height=600,
+    # df_symbols = st.session_state[ss_DfSym]
+    # df_symbols.reindex()
+    # df_styled = df_symbols.style.format({'WklyPrdStg': '{:,.4f}',
+    #                                      'DlyPrdStg': '{:,.4f}'})
+    st.session_state[ss_DfSym].reindex()
+    df_symbols = st.session_state[ss_DfSym].copy(deep=True)
+    df_sym = st.dataframe(df_symbols, key="dfSymbols", height=600,
                           column_order=["Symbol", "Groups", "Trend",
                                         "WklyPrdStg", "DlyPrdStg"],
                           column_config={"Symbol": {"max_width": 5},
@@ -511,7 +526,7 @@ def st_dataframe_widget(exp_sym, ss_DfSym, df_sel_mode, sym_col):
     # Display Chosen Symbol's Chart & Data ========================
     if hasattr(df_sym.selection, 'rows') and len(df_sym.selection.rows) > 0:
         # We have a selected symbol so display the symbol's chart
-        df_symbols = st.session_state[ss_DfSym]
+        st.session_state[ss_DfSym] = df_symbols.copy(deep=True)
         logger.info(df_sym.selection.rows[0])
         logger.info(df_symbols.Symbol[df_sym.selection.rows[0]])
         img_sym = df_symbols.Symbol[df_sym.selection.rows[0]]
@@ -739,7 +754,7 @@ def add_new_symbols(st, exp_sym, syms):
     prog_bar = exp_sym.progress(0, "Analyzing Symbols")
     # await analyze_symbols(prog_bar, st.session_state[ss_DfSym])
     analyze_symbols(st, prog_bar, df_symbols,
-                    imported_syms=added_symbols)
+                    added_syms=added_symbols)
 
 
 def display_symbol_charts():
@@ -925,7 +940,7 @@ def get_sym_image_file(sym, period, path):
 # Analyze the symbols in the DataFrame, in a separate thread.
 # ======================================================================
 # async def analyze_symbols(prog_bar, df_symbols):
-def analyze_symbols(st, prog_bar, df_symbols, imported_syms=None, force_training=False):
+def analyze_symbols(st, prog_bar, df_symbols, added_syms=None, force_training=False):
     logger.info("*** Analyzing Symbols: Started ***")
     all_df_symbols = st.session_state[ss_AllDfSym]
     total_syms = all_df_symbols.shape[0]
@@ -938,7 +953,7 @@ def analyze_symbols(st, prog_bar, df_symbols, imported_syms=None, force_training
         # Loop through the symbols in the DataFrame
         for row in all_df_symbols.itertuples():
 
-            if imported_syms is not None and row.Symbol not in imported_syms:
+            if added_syms is not None and row.Symbol not in added_syms:
                 # Skip all symbols not in the imported symbols list
                 continue
             else:
@@ -948,7 +963,7 @@ def analyze_symbols(st, prog_bar, df_symbols, imported_syms=None, force_training
                 # Create a weekly PricePredict object for the symbol
                 ppw = PricePredict(ticker=row.Symbol, period=PricePredict.PeriodWeekly)
                 st.session_state[ss_SymDpps_w][row.Symbol] = ppw
-                st.session_state[ss_SymDpps_w][row.Groups] = 'Imported'
+                st.session_state[ss_SymDpps_w][row.Groups] = 'Added'
             else:
                 ppw = st.session_state[ss_SymDpps_w][row.Symbol]
 
@@ -970,7 +985,8 @@ def analyze_symbols(st, prog_bar, df_symbols, imported_syms=None, force_training
                 logger.info(f"Weekly - Train and Predict: {row.Symbol}")
                 # future = executor.submit(task_train_predict_report, row.Symbol, ppw)
                 # futures.append(future)
-                tm.submit(task_train_predict_report, row.Symbol, ppw)
+                tm.submit(task_train_predict_report, row.Symbol, ppw,
+                          added_syms=added_syms, force_training=force_training)
                 total_syms += 1
             except Exception as e:
                 logger.error(f"Error processing symbol: {row.Symbol}\n{e}")
@@ -1001,7 +1017,8 @@ def analyze_symbols(st, prog_bar, df_symbols, imported_syms=None, force_training
                 logger.info(f"Daily - Train and Predict: {row.Symbol}")
                 # future = executor.submit(task_train_predict_report, row.Symbol, ppd)
                 # futures.append(future)
-                tm.submit(task_train_predict_report, row.Symbol, ppd, force_training=force_training)
+                tm.submit(task_train_predict_report, row.Symbol, ppd,
+                          added_syms=added_syms, force_training=force_training)
                 total_syms += 1
             except Exception as e:
                 logger.error(f"Error pull-train-predict on symbol: {row.Symbol}\n{e}")
@@ -1040,9 +1057,37 @@ def analyze_symbols(st, prog_bar, df_symbols, imported_syms=None, force_training
 
     st.session_state[ss_DfSym] = update_viz_data(st, all_df_symbols)
 
+    logger.debug(f"6> Saving all_df_symbols to {guiAllSymbolsCsv}")
+    all_df_symbols = st.session_state[ss_AllDfSym]
+    df_symbols = st.session_state[ss_DfSym]
+    merge_and_save(all_df_symbols, df_symbols)
+
     # Save out the updated DataFrames and PricePredict objects
     store_pp_objects(st)
     logger.info("--- Analyzing Symbols: Completed ---")
+
+    # Remove old PricePredict objects
+    del_d_models = model_cleanup(PricePredict.PeriodDaily, st.session_state[ss_AllDfSym])
+    del_w_models = model_cleanup(PricePredict.PeriodWeekly, st.session_state[ss_AllDfSym])
+    del_1h_models = model_cleanup(PricePredict.Period1hour, st.session_state[ss_AllDfSym])
+    del_5min_models = model_cleanup(PricePredict.Period5min, st.session_state[ss_AllDfSym])
+    del_1min_models = model_cleanup(PricePredict.Period1min, st.session_state[ss_AllDfSym])
+    print(f"Deleted {del_d_models} Daily PricePredict objects")
+    print(f"Deleted {del_w_models} Weekly PricePredict objects")
+    print(f"Deleted {del_1h_models} 1Hour PricePredict objects")
+    print(f"Deleted {del_5min_models} 5Min PricePredict objects")
+    print(f"Deleted {del_1min_models} 1Min PricePredict objects")
+
+    del_d_charts = charts_cleanup(st, PricePredict.PeriodDaily)
+    del_w_charts = charts_cleanup(st, PricePredict.PeriodWeekly)
+    del_1h_charts = charts_cleanup(st, PricePredict.Period1hour)
+    del_5min_charts = charts_cleanup(st, PricePredict.Period5min)
+    del_1min_charts = charts_cleanup(st, PricePredict.Period1min)
+    print(f"Deleted {del_d_charts} Daily Chart images")
+    print(f"Deleted {del_w_charts} Weekly Chart images")
+    print(f"Deleted {del_1h_charts} 1Hour Chart images")
+    print(f"Deleted {del_5min_charts} 5Min Chart images")
+    print(f"Deleted {del_1min_charts} 1Min Chart images")
 
 
 def load_pp_objects(st):
@@ -1204,7 +1249,7 @@ def task_pull_data(symbol_, dpp):
     logger.info(f"Pulling data for {symbol_}...")
     if dpp.last_analysis is not None:
         if dpp.last_analysis > ago24hrs:
-            logger.info(f"PricePredict object is already updodate: {symbol_}")
+            logger.info(f"PricePredict object is already up-to-date: {symbol_}")
             return symbol_, dpp
 
     # Set the end date to today...
@@ -1229,7 +1274,7 @@ def task_pull_data(symbol_, dpp):
     return symbol_, dpp
 
 
-def task_train_predict_report(symbol_, dpp, force_training=False):
+def task_train_predict_report(symbol_, dpp, added_syms=None, force_training=False):
     # Get datetime 24 hours ago
     ago24hrs = datetime.now() - timedelta(days=1)
 
@@ -1241,6 +1286,10 @@ def task_train_predict_report(symbol_, dpp, force_training=False):
     # - Trains and Saves a new model if needed
     # - Performs the prediction on the cached prediction data
     # - Generates the required charts and database updates
+    if added_syms is None:
+        added_syms = []
+    if dpp.ticker in added_syms:
+        force_training = True
     if force_training:
         logger.info(f"Training and predicting for {symbol_}...")
         dpp.cached_train_predict_report()
@@ -1278,9 +1327,12 @@ def create_charts_dict(st):
                     charts_dict[sym + '_' + period] = file
     if len(charts_dict) > 0:
         st.session_state['sym_charts'] = charts_dict
-
+    else:
+        st.session_state['sym_charts'] = {}
 
 def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
+
+    create_charts_dict(st)
 
     min_data_points = 50
 
@@ -1327,7 +1379,7 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
             prd_strg = pp.pred_strength
             if prd_strg is None:
                 prd_strg = 0
-            all_df_symbols.loc[indx, 'DlyPrdStg'] = prd_strg
+            all_df_symbols.loc[indx, 'DlyPrdStg'] = f'{prd_strg:>,.4f}'
             all_df_symbols.loc[indx, 'dTop10Corr'] = json.dumps(pp.top10corr)
             all_df_symbols.loc[indx, 'dTop10xCorr'] = json.dumps(pp.top10xcorr)
 
@@ -1371,7 +1423,7 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
             prd_strg = pp.pred_strength
             if prd_strg is None:
                 prd_strg = 0
-            all_df_symbols.loc[indx, 'WklyPrdStg'] = prd_strg
+            all_df_symbols.loc[indx, 'WklyPrdStg'] = f'{prd_strg:>,.4f}'
             all_df_symbols.loc[indx, 'wTop10Corr'] = json.dumps(pp.top10corr)
             all_df_symbols.loc[indx, 'wTop10xCorr'] = json.dumps(pp.top10xcorr)
 
@@ -1393,8 +1445,6 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
             df_symbols.loc[indx1, 'wTop10xCorr'] = all_df_symbols.loc[indx2, 'wTop10xCorr']
 
     st.session_state[ss_DfSym] = df_symbols
-
-    create_charts_dict(st)
 
     return df_symbols
 
@@ -1440,7 +1490,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
                     if source_sym.orig_data is not None:
                         len_ = len(source_sym.orig_data)
                     logger.info(
-                        f"Symbol [{source_sym.ticker}] [{len_}] has less than {min_data_points}s data points. Wont calculate correlations.")
+                        f"Symbol [{source_sym.ticker}] [{len_}] has less than {min_data_points} data points. Wont calculate correlations.")
                     continue
 
                 corr = target_sym.periodic_correlation(source_sym)
@@ -1509,6 +1559,93 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
     return
 
 
+def model_cleanup(period, symbols):
+    # Given the list of symbols, in sum_dpps_d...
+    # Get the list of models that contain _D_ in the name...
+    del_model_cnt = 0
+    for sym in symbols['Symbol']:
+        sym = sym.replace("=", "~")
+        # Find all the files that match the symbol.
+        syms_files = []
+        for root, dirs, files in os.walk("models"):
+            for file in files:
+                if file.startswith(sym) and period in file and file.endswith(".keras"):
+                    syms_files.append(file)
+        # Sort the file by file name in reverse order...
+        syms_files = sorted(syms_files, reverse=True)
+        # Remove all but the first file...
+        for file in syms_files[1:]:
+            os.remove(f"models/{file}")
+            del_model_cnt += 1
+
+    return del_model_cnt
+
+
+def charts_cleanup(st, period):
+    # Remove the old charts...
+    all_df_symbols = st.session_state[ss_AllDfSym]
+    sym_list = all_df_symbols['Symbol'].values
+    files_deleted = 0
+    syms = []
+    for root, dirs, files in os.walk("charts"):
+        for file in files:
+            if file.endswith(".png") and f"_{period}_" in file:
+                fn_comps = file.split("_")
+                fsym = fn_comps[0]
+                fper = "_" + fn_comps[1] + "_"
+                if fsym not in sym_list:
+                    # Remove the file if the symbol is not in the general symbol dataframe
+                    os.remove(f"charts/{file}")
+                    files_deleted += 1
+                    continue
+                if period in fper and fsym not in syms:
+                    # Add files with the symbol in to the syms list
+                    syms.append(fsym)
+
+        files_in_charts = []
+        for root, dirs, files in os.walk("charts"):
+            for file in files:
+                files_in_charts.append(file)
+
+        for sym in syms:
+            # Find all the files that match the symbol.
+            syms_files = []
+            for file in files_in_charts:
+                if file.startswith(sym) and f'_{period}_' in file:
+                    syms_files.append(file)
+            # Sort the file by file name in reverse order...
+            syms_files = sorted(syms_files, reverse=True)
+            # Remove all but the first file...
+            if len(syms_files) > 1:
+                for file in syms_files[1:]:
+                    os.remove(f"charts/{file}")
+                    files_deleted += 1
+
+    return files_deleted
+
+def create_D_charts():
+
+    # Create the Daily Charts...
+    # Get the list of symbols...
+    all_df_symbols = st.session_state[ss_AllDfSym]
+    sym_list = all_df_symbols['Symbol'].values
+    for sym in sym_list:
+        if sym in st.session_state[ss_SymDpps_d]:
+            pp = st.session_state[ss_SymDpps_d][sym]
+            if pp is not None:
+                pp.create_chart_image(sym, pp.period)
+
+    return
 if __name__ == "__main__":
     my_msg = "I'm Still Here!"
     main(my_msg)
+    # profiler = LineProfiler()
+    # profiler.add_function(main)
+    # profiler.add_function(analyze_symbols)
+    # profiler.add_function(task_pull_data)
+    # profiler.add_function(task_train_predict_report)
+    # profiler.add_function(update_viz_data)
+    # profiler.add_function(sym_correlations)
+    # profiler.add_function(st_dataframe_widget)
+    # profiler.runcall(main, my_msg)
+    # profiler.print_stats()
