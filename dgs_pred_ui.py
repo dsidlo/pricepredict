@@ -1594,9 +1594,11 @@ def charts_cleanup(st, period):
                 fsym = fn_comps[0]
                 fper = "_" + fn_comps[1] + "_"
                 if fsym not in sym_list:
-                    # Remove the file if the symbol is not in the general symbol dataframe
-                    os.remove(f"charts/{file}")
-                    files_deleted += 1
+                    # Check if the charts file exists
+                    if os.path.isfile(f"charts/{file}"):
+                        # Remove the file if the symbol is not in the general symbol dataframe
+                        os.remove(f"charts/{file}")
+                        files_deleted += 1
                     continue
                 if period in fper and fsym not in syms:
                     # Add files with the symbol in to the syms list
@@ -1618,24 +1620,14 @@ def charts_cleanup(st, period):
             # Remove all but the first file...
             if len(syms_files) > 1:
                 for file in syms_files[1:]:
-                    os.remove(f"charts/{file}")
-                    files_deleted += 1
+                    # Check if the charts file exists
+                    if os.path.isfile(f"charts/{file}"):
+                        os.remove(f"charts/{file}")
+                        files_deleted += 1
 
     return files_deleted
 
-def create_D_charts():
 
-    # Create the Daily Charts...
-    # Get the list of symbols...
-    all_df_symbols = st.session_state[ss_AllDfSym]
-    sym_list = all_df_symbols['Symbol'].values
-    for sym in sym_list:
-        if sym in st.session_state[ss_SymDpps_d]:
-            pp = st.session_state[ss_SymDpps_d][sym]
-            if pp is not None:
-                pp.create_chart_image(sym, pp.period)
-
-    return
 if __name__ == "__main__":
     my_msg = "I'm Still Here!"
     main(my_msg)

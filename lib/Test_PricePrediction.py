@@ -1215,3 +1215,23 @@ class Test_PricePredict(TestCase):
         # End of the seasonality test
         # =========================================
 
+    def test_groq_sentiment(self):
+        # Create an instance of the price prediction object
+        pp = PricePredict(period=PricePredict.PeriodDaily, model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
+
+        # =========================================
+        # First we need to create a model file
+        ticker = "AAPL"
+        test_ticker = "Test-" + ticker
+        # Data download dates
+        start_date = "2024-06-01"
+        end_date = "2024-07-30"
+        # Model file dates
+        mdl_start_date = "2015-01-01"
+        mdl_end_date = "2024-07-30"
+
+        pp.ticker = ticker
+        pp.groq_sentiment()
+        self.assertIsNotNone(pp.sentiment_json, "groq_sentiment: Returned None")
+        self.assertIsNotNone(pp.sentiment_json['balance_sheet_analysis']['cash_and_cash_equivalents'],
+                             "groq_sentiment ['balance_sheet_analysis']['cash_and_cash_equivalents']: Returned None")

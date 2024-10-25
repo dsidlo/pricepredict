@@ -63,7 +63,7 @@ numpy==1.26.4
 opt-einsum==3.3.0
 optree==0.12.1
 packaging==24.1
-pandas==2.2.2
+pandas~=2.2.3
 pandas_ta==0.3.14b0
 parso==0.8.4
 patsy==0.5.6
@@ -103,7 +103,7 @@ soupsieve==2.6
 stack-data==0.6.3
 statsmodels==0.14.3
 streamlit==1.38.0
-sympy==1.13.3
+sympy~=1.13.1
 tenacity==8.5.0
 tensorboard==2.17.1
 tensorboard-data-server==0.7.2
@@ -125,3 +125,16 @@ wheel==0.44.0
 widgetsnbextension==4.0.13
 wrapt==1.16.0
 yfinance==0.2.43
+
+sklearn~=0.0
+configparser~=7.1.0
+zlib~=1.2.13
+torch~=2.5.0
+pyzmq~=26.2.0
+colorama~=0.4.6
+zipp~=3.20.2
+overrides~=7.7.0
+cffi~=1.17.1
+pathspec~=0.12.1
+readline~=8.2
+ipykernel~=6.29.5

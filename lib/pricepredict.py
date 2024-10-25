@@ -48,6 +48,7 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 from pydantic import validate_arguments
 from typing import Any, Dict, List, Optional, Union
+from groq import Groq
 
 from sympy.physics.quantum.shor import period_find
 
@@ -293,6 +294,8 @@ class PricePredict():
         self.pred_strength = None         # The strength of the prediction
         self.top10corr = None             # The top 10 correlations dict {'<Sym>': <Corr%>}
         self.top10xcorr = None            # The top 10 cross correlations dict {'<Sym>': <xCorr%>}
+        self.sentiment_json = {}          # The sentiment as json
+        self.sentiment_text = ''          # The sentiment as text
 
         # Create a logger for this object.
         if logger is None:
@@ -2121,6 +2124,91 @@ class PricePredict():
                     'avg_corr': (pearson_corr + spearman_corr + kendall_corr) / 3}
 
         return ret_dict
+
+    def groq_sentiment(self):
+        # Replace 'AAPL' with the ticker symbol of the stock you are interested in
+        ticker_symbol = 'TSLA'
+        stock = yf.Ticker(ticker_symbol)
+        # balance_sheet = stock.balance_sheet
+        balance_sheet = stock.quarterly_balance_sheet
+        income_statement = stock.financials
+        # print("=== Balance Sheets ===")
+        # print(balance_sheet)
+        # print("\n\n=== Income Statements ===")
+        # print(income_statement)
+
+        # Send an API call to GROQ LLM to perform sentiment analysis on the balance sheet data
+        client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {
+                    "role": "user",
+                    "content": f'''Please perform a critical analyze the following balance sheets and income statements and 
+                     give me a review of the company from a financial perspecive and be critical of values from period to 
+                     period and consider if missing values indicate mis-reporting of data. And, add a summary of sentiment 
+                     analysis of the company from the viewpoint of board members, from the viewpoint of shareholders, and 
+                     from the viewpoint of short sellers. Finally, create a sentiment analysis score for the company from 1 to 5, 
+                     where 1 is very negative and 5 is very positive. Separate each section into its json attribute.
+                     Place the JSON output between the "~~~ JSON Start ~~~" and "~~~ JSON End ~~~" tags, as a the start of the response. 
+                     --- Balance Sheets ---
+                     {balance_sheet}
+                     --- Income Statements ---
+                     {income_statement}
+                     --- Use the following JSON structure as an example for the response ---
+                     {{
+                      "balance_sheet_analysis": {{
+                        "treasury_shares_number": "increased significantly",
+                        "ordinary_shares_number": "increasing",
+                        "net_debt": "increased significantly",
+                        "cash_and_cash_equivalents": "increased significantly"
+                      }},
+                      "income_statement_analysis": {{
+                        "net_income_from_continuing_operation_net_minority_interest": "significant losses",
+                        "ebitda": "consistently negative",
+                        "interest_expense": "increasing",
+                        "research_and_development_expenses": "increasing"
+                      }},
+                      "critical_analysis": {{
+                        "missing_values": "incomplete financial statements",
+                        "debt_level": "increasing",
+                        "ebitda": "negative",
+                        "net_income": "significant losses"
+                      }},
+                      "sentiment_analysis": {{
+                        "board_members": 2,
+                        "shareholders": 2,
+                        "short_sellers": 4
+                      }},
+                      "overall_sentiment_score": 2.33
+                     }}  
+                     '''
+                }
+            ],
+            model="llama3-70b-8192",
+        )
+
+        try:
+            content = chat_completion.choices[0].message.content
+        except Exception as e:
+            self.logger.error(f"Error: Could call on Groq for sentiment on {self.ticker}.\n{e}")
+            return
+
+        # Extract the JSON response from the content using a regular expression
+        cnt_matches = re.match(r'.*(~~~ JSON Start ~~~|\'\'\')\n(.*)\n(~~~ JSON End ~~~|\'\'\')\n(.*)',
+                               content, re.DOTALL | re.MULTILINE)
+
+        if cnt_matches is not None:
+            try:
+                json_response = json.loads(cnt_matches.group(2))
+                self.sentiment_json = json_response
+            except Exception as e:
+                self.sentiment_json = {}
+                self.logger.warn(f"Failed to parse JSON response from Groq for sentiment on {self.ticker}.\n{e}")
+            text_response = cnt_matches.group(4)
+            self.sentiment_text = text_response.strip()
+        else:
+            self.sentiment_json = {}
+            self.sentiment_text = ''
 
     def seasonality(self, save_chart: bool = False,
                           show_chart: bool = False,
