@@ -41,14 +41,17 @@ from keras.layers import TimeDistributed
 from keras.models import Model
 from keras.models import Sequential
 from keras.utils import plot_model
+from keras.callbacks import EarlyStopping
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
 from IPython.display import Image
 from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 from pydantic import validate_arguments
 from typing import Any, Dict, List, Optional, Union
 from groq import Groq
+from bayes_opt import BayesianOptimization
 
 from sympy.physics.quantum.shor import period_find
 
@@ -182,22 +185,25 @@ class PricePredict():
                         Period1min: 420}
 
     def __init__(self,
-                 ticker='',                 # The ticker for the data
+                 ticker='',                   # The ticker for the data
                  model_dir='./models/',       # The directory where the model is saved
                  chart_dir='./charts/',       # The directory where the charts are saved
                  preds_dir='./predictions/',  # The directory where the predictions are saved
-                 period=PeriodDaily,        # The period for the data (D, W)
-                 back_candles=15,           # The number of candles to look back for each period.
-                 split_pcnt=0.8,            # The value for splitting data into training and testing.
-                 batch_size=30,             # The batch size for training the model.
-                 epochs=50,                 # The number of epochs for training the model.
-                 shuffle=True,              # Shuffle the data for training the model.
-                 val_split=0.1,             # The validation split used during training.
-                 verbose=True,              # Print debug information
-                 logger = None,              # The logger for this object
-                 logger_file_path = None,   # The path to the log file
-                 log_level = None,           # The logging level
-                 force_training = False,    # Force training the model
+                 period=PeriodDaily,          # The period for the data (D, W)
+                 back_candles=15,             # The number of candles to look back for each period.
+                 split_pcnt=0.8,              # The value for splitting data into training and testing.
+                 batch_size=30,               # The batch size for training the model.
+                 epochs=50,                   # The number of epochs for training the model.
+                 lstm_units=256,              # The current models units
+                 lstm_dropout=0.2,            # The current models dropout
+                 adam_learning_rate=0.035,    # The current models learning rate
+                 shuffle=True,                # Shuffle the data for training the model.
+                 val_split=0.1,               # The validation split used during training.
+                 verbose=True,                # Print debug information
+                 logger = None,               # The logger for this object
+                 logger_file_path = None,     # The path to the log file
+                 log_level = None,            # The logging level
+                 force_training = False,      # Force training the model
                  keras_log = 'PricePredict_keras.log'  # The keras log file
                  ):
         """
@@ -227,6 +233,9 @@ class PricePredict():
         self.seasonal_chart_path = ''     # The path to the seasonal decomposition chart
         self.period = period              # The period for the data (D, W)
         self.model = None                 # The current loaded model
+        self.lstm_units = lstm_units                    # The current models units
+        self.lstm_dropout = lstm_dropout                # The current models dropout
+        self.adam_learning_rate = adam_learning_rate    # The current models learning rate
         self.scaler = None                # The current models scaler
         self.Verbose = verbose            # Print debug information
         self.ticker = ticker              # The ticker for the data
@@ -1073,13 +1082,19 @@ class PricePredict():
         shuffle = self.shuffle
         validation_split = self.val_split
 
-        lstm_input = Input(shape=(backcandels, feature_cnt), name='lstm_input')
-        inputs = LSTM(200, name='first_layer')(lstm_input)
-        inputs = Dense(self.targets, name='dense_layer')(inputs)
-        output = Activation('linear', name='output')(inputs)
-        model = Model(inputs=lstm_input, outputs=output)
-        adam = optimizers.Adam()
-        model.compile(optimizer=adam, loss='mse')
+        # Create the LSTM model
+        if self.model is None:
+            self.logger.debug("Creating a new model...")
+            lstm_input = Input(shape=(backcandels, feature_cnt), name='lstm_input')
+            inputs = LSTM(200, name='first_layer')(lstm_input)
+            inputs = Dense(self.targets, name='dense_layer')(inputs)
+            output = Activation('linear', name='output')(inputs)
+            model = Model(inputs=lstm_input, outputs=output)
+            adam = optimizers.Adam()
+            model.compile(optimizer=adam, loss='mse')
+        else:
+            self.logger.debug("Using existing self.model...")
+            model = self.model
 
         # Define the CSV logger
         csv_logger = CSVLogger('PricePred_keras_training_log.csv')
@@ -1128,6 +1143,205 @@ class PricePredict():
         self.logger.info(f"=== Model Training Completed [{self.ticker}] [{self.period}]...")
 
         return model, y_pred, mse
+
+    def train_model(self, X, y, split_pcnt=0.8, backcandels=None):
+        """
+        Train the model.
+        Given the training data, split it into training and testing data.
+        Train the model and return the model and the prediction.
+        Adjust the prediction are not made here.
+        :param X:
+        :param y:
+        :param split_pcnt:
+        :param backcandels:
+        :return:
+        """
+
+        self.logger.info(f"=== Training Model [{self.ticker}] [{self.period}]...")
+        # Handle the optional parameters
+        if split_pcnt is None:
+            split_pcnt = self.split_pcnt
+        splitlimit = int(len(X) * split_pcnt)
+
+        self.split_limit = splitlimit
+        if backcandels is None:
+            backcandels = self.back_candles
+
+        data_set = self.data_scaled
+        feature_cnt = self.features
+
+        # Split the scaled data into training and testing
+        # logger.info("lenX:",len(X), "splitLimit:",splitlimit)
+        X_train, X_test = X[:splitlimit], X[splitlimit:]  # Training data, Test Data
+        y_train, y_test = y[:splitlimit], y[splitlimit:]  # Training data, Test Data
+
+        # Get the model parameters from this object
+        batch_size = self.batch_size
+        epochs = self.epochs
+        shuffle = self.shuffle
+        validation_split = self.val_split
+
+        lstm_units = 200
+        lstm_dropout = 0.2
+        adam_learning_rate = 0.035
+        if self.lstm_units is not None:
+            lstm_units = self.lstm_units
+        if self.lstm_dropout is not None:
+            lstm_dropout = self.lstm_dropout
+        if self.adam_learning_rate is not None:
+            adam_learning_rate = self.adam_learning_rate
+
+        # Create the LSTM model
+        if self.model is None:
+            self.logger.debug("Creating a new model...")
+            lstm_input = Input(shape=(backcandels, feature_cnt), name='lstm_input')
+            inputs = LSTM(lstm_units, name='first_layer', dropout=lstm_dropout)(lstm_input)
+            inputs = Dense(self.targets, name='dense_layer')(inputs)
+            output = Activation('linear', name='output')(inputs)
+            model = Model(inputs=lstm_input, outputs=output)
+            adam = optimizers.Adam(learning_rate=adam_learning_rate)
+            model.compile(optimizer=adam, loss='mse')
+        else:
+            self.logger.debug("Using existing self.model...")
+            model = self.model
+
+        # Define the CSV logger
+        csv_logger = CSVLogger('PricePred_keras_training_log.csv')
+
+        # Train the model
+        model.fit(x=X_train, y=y_train,
+                  batch_size=batch_size, epochs=epochs,
+                  shuffle=shuffle, validation_split=validation_split,
+                  callbacks=[csv_logger],
+                  verbose=self.keras_verbosity)
+
+        if len(X_test) > 0:
+            y_pred = model.predict(X_test)
+            fy_pred = np.array(pd.DataFrame(y_pred).replace({np.nan: 0}))
+            fy_test = np.array(pd.DataFrame(y_test).replace({np.nan: 0}))
+            mse = mean_squared_error(fy_test, fy_pred)
+            if self.Verbose:
+                self.logger.info(f"Mean Squared Error: {mse}")
+
+            # Restore the scale of the prediction
+            pred_rescaled = self.restore_scale_pred(y_pred.reshape(-1, self.targets))
+        else:
+            self.logger.warn("*** Won't predict. No test data.")
+            y_pred = []
+            mse = 0
+            pred_rescaled = []
+
+        # Save the model and the test and prediction
+        self.X_train = X_train
+        self.X_test = X_test
+        self.y_train = y_train
+        self.y_test = y_test
+        self.target_close = np.array(self.orig_data['Adj Close'].iloc[backcandels + splitlimit - 1:])
+        self.target_high = np.array(self.orig_data['High'].iloc[backcandels + splitlimit - 1:])
+        self.target_low = np.array(self.orig_data['Low'].iloc[backcandels + splitlimit - 1:])
+        self.y_pred = y_pred
+        self.mean_squared_error = mse
+        self.pred = y_pred
+        self.pred_rescaled = pred_rescaled
+        self.dateStart_train = pd.to_datetime(self.date_data.iloc[0]).strftime("%Y-%m-%d")
+        self.dateEnd_train = pd.to_datetime(self.date_data.iloc[-1]).strftime("%Y-%m-%d")
+        self.dateStart_pred = pd.to_datetime(self.date_data.iloc[splitlimit + 1]).strftime("%Y-%m-%d")
+        self.dateEnd_pred = pd.to_datetime(self.date_data.iloc[-1]).strftime("%Y-%m-%d")
+        self.model = model
+
+        self.logger.info(f"=== Model Training Completed [{self.ticker}] [{self.period}]...")
+
+        return model, y_pred, mse
+
+    def bayes_train_model(self, X, y, split_pcnt=0.8, backcandels=None,
+                          lstm_units=256, lstm_dropout=0.2, adam_learning_rate=0.001):
+        """
+        Train the model.
+        Given the training data, split it into training and testing data.
+        Train the model and return the model and the prediction.
+        Adjust the prediction are not made here.
+        :param X:
+        :param y:
+        :param split_pcnt:
+        :param backcandels:
+        :return:
+        """
+
+        self.logger.info(f"=== Training Model [{self.ticker}] [{self.period}]...")
+        # Handle the optional parameters
+        if split_pcnt is None:
+            split_pcnt = self.split_pcnt
+        splitlimit = int(len(X) * split_pcnt)
+
+        self.split_limit = splitlimit
+        if backcandels is None:
+            backcandels = self.back_candles
+
+        data_set = self.data_scaled
+        feature_cnt = self.features
+
+        # Get the model parameters from this object
+        batch_size = self.batch_size
+        epochs = self.epochs
+        shuffle = self.shuffle
+        validation_split = self.val_split
+
+        self.logger.debug("Creating a new model...")
+        lstm_input = Input(shape=(backcandels, feature_cnt), name='lstm_input')
+        inputs = LSTM(int(lstm_units), name='first_layer', dropout=lstm_dropout)(lstm_input)
+        inputs = Dense(self.targets, name='dense_layer')(inputs)
+        output = Activation('linear', name='output')(inputs)
+        model = Model(inputs=lstm_input, outputs=output)
+        adam = optimizers.Adam(learning_rate=adam_learning_rate)
+        model.compile(optimizer=adam, loss='mse')
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=splitlimit, random_state=42)
+        # Callback: Define the CSV logger
+        csv_logger = CSVLogger('PricePred_keras_training_log.csv')
+        # Callback: Early Stopping
+        early_stopping = EarlyStopping(monitor='val_loss', patience=5, min_delta=0.001)
+
+        # Train the model
+        model.fit(x=X_train, y=y_train,
+                  batch_size=batch_size, epochs=epochs,
+                  shuffle=shuffle, validation_split=validation_split,
+                  validation_data=(X_test, y_test),
+                  callbacks=[early_stopping, csv_logger],
+                  verbose=self.keras_verbosity)
+
+        loss = model.evaluate(X_test, y_test)
+        return loss
+
+    def bayesian_optimization(self, X, y):
+        """
+        Perform Bayesian Optimization on the model.
+        """
+
+        # ======================================================
+        # === This is the function that we want to optimize ===
+        def optimize_model(lstm_units=None, lstm_dropout=None, adam_learning_rate=None):
+            loss = self.bayes_train_model(X, y,
+                                          lstm_units=lstm_units,
+                                          lstm_dropout=lstm_dropout,
+                                          adam_learning_rate=adam_learning_rate)
+            # Loss is flipped because we want to maximize the loss.
+            return -loss
+        # === End of the function to optimize ===
+        # ======================================================
+
+        optimizer = BayesianOptimization(f=optimize_model,
+                                         pbounds={'lstm_units': (32, 256),
+                                                  'lstm_dropout': (0.1, 0.5),
+                                                  'adam_learning_rate': (0.001, 0.1)},
+                                         random_state=42)
+        optimizer.maximize(init_points=10, n_iter=20)
+
+        self.logger.info(f"Bayesian Optimization: {optimizer.max}")
+        print(f"Bayesian Optimization: {optimizer.max}")
+
+        self.lstm_dropout = optimizer.max['params']['lstm_dropout']
+        self.lstm_units = optimizer.max['params']['lstm_units']
+        self.adam_learning_rate = optimizer.max['params']['adam_learning_rate']
 
     def save_model(self, model=None, model_dir: str = None,
                    ticker: str = None, date_start: str = None, date_end: str = None):

@@ -668,6 +668,45 @@ class Test_PricePredict(TestCase):
         pp.plot_pred_results(pp.target_close, pp.target_high, pp.target_low,
                              pred_close, pred_high, pred_low, title=title)
 
+    def test_bayesian_optimization(self):
+        # Create an instance of the price prediction object
+        pp = PricePredict(model_dir='../models/',
+                          chart_dir='../charts/', preds_dir='../predictions/',
+                          logger=self.logger)
+
+        # Load data from Yahoo Finance
+        ticker = "IBM"
+        start_date = "2020-01-01"
+        end_date = "2023-12-31"
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        self.assertGreaterEqual(len(data), 1, "data: Wrong length")
+
+        # Augment the data with additional indicators/features
+        aug_data, features, targets, dates_data = pp.augment_data(data, features)
+        self.assertEqual(features, 19, "features: Wrong count")
+        self.assertEqual(1006, len(dates_data), "dates_data: Wrong length")
+        self.assertEqual(1007, len(aug_data), "aug_data: Wrong length")
+
+        # Scale the data so the model can use it more effectively
+        scaled_data, scaler = pp.scale_data(aug_data)
+        self.assertEqual(1007, len(scaled_data), "scaled_data: Wrong length")
+        self.assertIsNotNone(scaler, "scaler: Wrong length")
+
+        # Prepare the scaled data for model inputs
+        X, y = pp.prep_model_inputs(scaled_data, features)
+        self.assertEqual(1007 - pp.back_candles, len(X), "X: Wrong length")
+        self.assertEqual(1007 - pp.back_candles, len(y), "y: Wrong length")
+
+        # Use a small batch size and epochs to test the model training
+        pp.epochs = 3
+        pp.batch_size = 1
+        # Train the model
+        model, y_pred, mse = pp.train_model(X, y)
+        self.assertIsNotNone(model, "model: Wrong length")
+
+        # Perform Bayesian optimization
+        pp.bayesian_optimization(X, y)
+
     def test_save_model(self):
         # Create an instance of the price prediction object
         pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')

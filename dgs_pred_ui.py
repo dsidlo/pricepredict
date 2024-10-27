@@ -837,6 +837,13 @@ def display_symbol_charts():
 
             st.markdown(f"=====   =====   =====   =====   ====   ====   ====    ====   ====   =====   =====   =====   =====   =====   =====   =====   =====")
 
+            expd_senti = st.expander("Sentiment...", expanded=False)
+            expd_senti.button("Sentiment Analysis", key='sb_Sentiment')
+            if 'sb_Sentiment' in st.session_state and st.session_state.sb_Sentiment:
+                if hasattr(pp, 'sentiment_text') is False or pp.sentiment_text == '':
+                    pp.groq_sentiment()
+                expd_senti.text(pp.sentiment_text + '\n\n' + json.dumps(pp.sentiment_json, indent=3))
+
             if img_sym not in st.session_state[ss_SymDpps_d]:
                 logger.error(f"Symbol [{img_sym}] not found in PricePredict objects")
             else:
