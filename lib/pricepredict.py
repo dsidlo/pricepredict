@@ -233,6 +233,7 @@ class PricePredict():
         self.seasonal_chart_path = ''     # The path to the seasonal decomposition chart
         self.period = period              # The period for the data (D, W)
         self.model = None                 # The current loaded model
+        self.opt_hypers = None            # The optimized hyperparameters
         self.lstm_units = lstm_units                    # The current models units
         self.lstm_dropout = lstm_dropout                # The current models dropout
         self.adam_learning_rate = adam_learning_rate    # The current models learning rate
@@ -901,7 +902,7 @@ class PricePredict():
         # Save the cached data into this object...
         self.cached_pred_data = prediction_cache
 
-    def cached_train_predict_report(self):
+    def cached_train_predict_report(self, save_plot=True, show_plot=False):
         """
         Train the model, make a prediction, and output a report.
         This method uses the cached training data and the cached prediction data,
@@ -947,9 +948,9 @@ class PricePredict():
                                 date_end=self.dateEnd_train)
 
         # At this point, we have loaded a model.
-        self.cached_predict_report()
+        self.cached_predict_report(save_plot=save_plot, show_plot=show_plot)
 
-    def cached_predict_report(self):
+    def cached_predict_report(self, save_plot=True, show_plot=False):
         # Load the cached prediction
         pc = self.cached_pred_data
         if pc is None:
@@ -991,7 +992,7 @@ class PricePredict():
         - Save the Seasonality Decomposition to a file or database.
         """
         self.logger.info(f"Performing price prediction for [{self.ticker}] using cached data...")
-        self.gen_prediction_chart(last_candles=75, save_plot=True)
+        self.gen_prediction_chart(last_candles=75, save_plot=save_plot, show_plot=show_plot)
         self.save_prediction_data()
 
         # Save current datetime of the last analysis.
@@ -1045,6 +1046,39 @@ class PricePredict():
 
         return X, y
 
+    def fetch_opt_hyperparameters(self, ticker, hparams_file=None):
+        """
+        Fetch the training parameters for the given ticker from the ./gui_data/ticker_bopts.json file.
+        :param ticker:
+        :return:
+        """
+        # Get the training parameters for the ticker.
+        # If the ticker is not in the training parameters, then use the default parameters.
+
+        if hparams_file is None:
+            hyperparams_files = [ f"./gui_data/ticker_bopts.json", f"../gui_data/ticker_bopts.json" ]
+            for hf in hyperparams_files:
+                if os.path.exists(hf):
+                    hparams_file = hf
+                    break
+        else:
+            if os.path.exists(hparams_file):
+                self.logger.error(f"Error: File [{hparams_file}] does not exist.")
+                raise ValueError(f"Error: File [{hparams_file}] does not exist.")
+
+        with open(hparams_file, 'r') as f:
+            for line in f:
+                opt_params = json.loads(line)
+                sym = next(iter(opt_params['Ticker']))
+                hyper_params = opt_params['Ticker'][sym]
+                hyper_params_s = json.dumps(opt_params['Ticker'][sym])
+                if sym == ticker:
+                    self.opt_hypers = hyper_params_s
+                    self.lstm_units = int(hyper_params['params']['lstm_units'])
+                    self.lstm_dropout = hyper_params['params']['lstm_dropout']
+                    self.adam_learning_rate = hyper_params['params']['adam_learning_rate']
+                    self.ticker = ticker
+
     def train_model(self, X, y, split_pcnt=0.8, backcandels=None):
         """
         Train the model.
@@ -1071,104 +1105,8 @@ class PricePredict():
         data_set = self.data_scaled
         feature_cnt = self.features
 
-        # Split the scaled data into training and testing
-        # logger.info("lenX:",len(X), "splitLimit:",splitlimit)
-        X_train, X_test = X[:splitlimit], X[splitlimit:] # Training data, Test Data
-        y_train, y_test = y[:splitlimit], y[splitlimit:] # Training data, Test Data
-
-        # Get the model parameters from this object
-        batch_size = self.batch_size
-        epochs = self.epochs
-        shuffle = self.shuffle
-        validation_split = self.val_split
-
-        # Create the LSTM model
-        if self.model is None:
-            self.logger.debug("Creating a new model...")
-            lstm_input = Input(shape=(backcandels, feature_cnt), name='lstm_input')
-            inputs = LSTM(200, name='first_layer')(lstm_input)
-            inputs = Dense(self.targets, name='dense_layer')(inputs)
-            output = Activation('linear', name='output')(inputs)
-            model = Model(inputs=lstm_input, outputs=output)
-            adam = optimizers.Adam()
-            model.compile(optimizer=adam, loss='mse')
-        else:
-            self.logger.debug("Using existing self.model...")
-            model = self.model
-
-        # Define the CSV logger
-        csv_logger = CSVLogger('PricePred_keras_training_log.csv')
-
-        # Train the model
-        model.fit(x=X_train, y=y_train,
-                  batch_size=batch_size, epochs=epochs,
-                  shuffle=shuffle, validation_split=validation_split,
-                  callbacks=[csv_logger],
-                  verbose=self.keras_verbosity)
-
-        if len(X_test) > 0:
-            y_pred = model.predict(X_test)
-            fy_pred = np.array(pd.DataFrame(y_pred).replace({np.nan:0}))
-            fy_test = np.array(pd.DataFrame(y_test).replace({np.nan:0}))
-            mse = mean_squared_error(fy_test, fy_pred)
-            if self.Verbose:
-                self.logger.info(f"Mean Squared Error: {mse}")
-
-            # Restore the scale of the prediction
-            pred_rescaled = self.restore_scale_pred(y_pred.reshape(-1, self.targets))
-        else:
-            self.logger.info("*** Won't predict. No test data.")
-            y_pred = []
-            mse = 0
-            pred_rescaled = []
-
-        # Save the model and the test and prediction
-        self.X_train = X_train
-        self.X_test = X_test
-        self.y_train = y_train
-        self.y_test = y_test
-        self.target_close = np.array(self.orig_data['Adj Close'].iloc[backcandels + splitlimit - 1:])
-        self.target_high = np.array(self.orig_data['High'].iloc[backcandels + splitlimit - 1:])
-        self.target_low = np.array(self.orig_data['Low'].iloc[backcandels + splitlimit - 1:])
-        self.y_pred = y_pred
-        self.mean_squared_error = mse
-        self.pred = y_pred
-        self.pred_rescaled = pred_rescaled
-        self.dateStart_train = pd.to_datetime(self.date_data.iloc[0]).strftime("%Y-%m-%d")
-        self.dateEnd_train = pd.to_datetime(self.date_data.iloc[-1]).strftime("%Y-%m-%d")
-        self.dateStart_pred = pd.to_datetime(self.date_data.iloc[splitlimit+1]).strftime("%Y-%m-%d")
-        self.dateEnd_pred = pd.to_datetime(self.date_data.iloc[-1]).strftime("%Y-%m-%d")
-        self.model = model
-
-        self.logger.info(f"=== Model Training Completed [{self.ticker}] [{self.period}]...")
-
-        return model, y_pred, mse
-
-    def train_model(self, X, y, split_pcnt=0.8, backcandels=None):
-        """
-        Train the model.
-        Given the training data, split it into training and testing data.
-        Train the model and return the model and the prediction.
-        Adjust the prediction are not made here.
-        :param X:
-        :param y:
-        :param split_pcnt:
-        :param backcandels:
-        :return:
-        """
-
-        self.logger.info(f"=== Training Model [{self.ticker}] [{self.period}]...")
-        # Handle the optional parameters
-        if split_pcnt is None:
-            split_pcnt = self.split_pcnt
-        splitlimit = int(len(X) * split_pcnt)
-
-        self.split_limit = splitlimit
-        if backcandels is None:
-            backcandels = self.back_candles
-
-        data_set = self.data_scaled
-        feature_cnt = self.features
+        # Fetch optimized hyperparameters, if available.
+        self.fetch_opt_hyperparameters(self.ticker)
 
         # Split the scaled data into training and testing
         # logger.info("lenX:",len(X), "splitLimit:",splitlimit)
@@ -1312,7 +1250,11 @@ class PricePredict():
         loss = model.evaluate(X_test, y_test)
         return loss
 
-    def bayesian_optimization(self, X, y):
+    def bayesian_optimization(self, X, y,
+                              pb_lstm_units=(32, 256),
+                              pb_lstm_dropout=(0.1, 0.5),
+                              pb_adam_learning_rate=(0.001, 0.1),
+                              opt_csv=None):
         """
         Perform Bayesian Optimization on the model.
         """
@@ -1330,18 +1272,27 @@ class PricePredict():
         # ======================================================
 
         optimizer = BayesianOptimization(f=optimize_model,
-                                         pbounds={'lstm_units': (32, 256),
-                                                  'lstm_dropout': (0.1, 0.5),
-                                                  'adam_learning_rate': (0.001, 0.1)},
+                                         pbounds={'lstm_units': pb_lstm_units,
+                                                  'lstm_dropout': pb_lstm_dropout,
+                                                  'adam_learning_rate': pb_adam_learning_rate},
                                          random_state=42)
         optimizer.maximize(init_points=10, n_iter=20)
 
-        self.logger.info(f"Bayesian Optimization: {optimizer.max}")
-        print(f"Bayesian Optimization: {optimizer.max}")
-
+        # Save the best parameters
+        self.opt_hypers = optimizer.max
         self.lstm_dropout = optimizer.max['params']['lstm_dropout']
         self.lstm_units = optimizer.max['params']['lstm_units']
         self.adam_learning_rate = optimizer.max['params']['adam_learning_rate']
+
+        self.logger.info(f"Bayesian Optimization: {optimizer.max}")
+        print(f"Bayesian Optimization: {{ Ticker: {self.ticker}: {optimizer.max} }}")
+
+        if opt_csv is not None:
+            # Append the results to a CSV file.
+            with open(opt_csv, 'a') as f:
+                f.write(f"{{ Ticker: {self.ticker}: {optimizer.max} }}\n")
+
+        return optimizer
 
     def save_model(self, model=None, model_dir: str = None,
                    ticker: str = None, date_start: str = None, date_end: str = None):
@@ -1639,7 +1590,7 @@ class PricePredict():
         save_dict = dict(fname=file_path, dpi=300, pad_inches=0.25)
 
         df_plt_test_usd.ffill(inplace=True)
-        if show_plot:
+        if show_plot or save_plot:
             try:
                 if save_plot:
                     fig, axis = mpf.plot(df_plt_test_usd[-min_len:], **kwargs,

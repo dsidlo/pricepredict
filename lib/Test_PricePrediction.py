@@ -705,7 +705,11 @@ class Test_PricePredict(TestCase):
         self.assertIsNotNone(model, "model: Wrong length")
 
         # Perform Bayesian optimization
-        pp.bayesian_optimization(X, y)
+        # - Test Parameters shorten the time to run the test
+        pp.bayesian_optimization(X, y,
+                                 pb_lstm_units=(153.4937, 153.4937),
+                                 pb_lstm_dropout=(0.2216, 0.2216),
+                                 pb_adam_learning_rate=(0.0191, 0.0191))
 
     def test_save_model(self):
         # Create an instance of the price prediction object
