@@ -1521,8 +1521,11 @@ class PricePredict():
 
         ticker = self.ticker
 
-        if 'Date' not in ohlcv.columns:
-            df_plt_test_usd = pd.concat([df_plt_test_usd, ohlcv.set_axis(df_plt_test_usd.index)], axis=1)
+        if 'Date' not in ohlcv.columns and 'Date' == ohlcv.index.name:
+            # df_plt_test_usd = pd.concat([df_plt_test_usd, ohlcv.set_axis(df_plt_test_usd.index)], axis=1)
+            # df_plt_test_usd = pd.concat([df_plt_test_usd, ohlcv[-len(df_plt_test_usd):]], axis=1)
+            df_plt_test_usd = ohlcv
+            df_plt_test_usd.reset_index(inplace=True)
         else:
             df_plt_test_usd = ohlcv.copy()
 

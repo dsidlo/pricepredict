@@ -774,6 +774,7 @@ def display_symbol_charts():
 
     img_cols = st.columns([1], gap='small', vertical_alignment='center')
     with img_cols[0]:
+        chart_missing = False
         # Ticker Chosen: Show tickers charts and data
         if 'img_sym' in locals() and img_sym is not None:
             # if ss_DfSym in st.session_state and 'Symbol' in st.session_state[ss_DfSym]:
@@ -783,9 +784,15 @@ def display_symbol_charts():
             st.markdown(f"## - {img_sym}: {sym_longName} -")
             st.markdown(f"### Weekly Chart")
             sym_indx = img_sym + "_" + 'W'
-            w_img_file = 'charts/' + st.session_state['sym_charts'][sym_indx]
-            if img_sym not in w_img_file:
+            if sym_indx in st.session_state['sym_charts']:
+                w_img_file = 'charts/' + st.session_state['sym_charts'][sym_indx]
+            else:
+                w_img_file = None
+            if w_img_file is not None and img_sym not in w_img_file:
                 w_img_file = get_sym_image_file(img_sym, 'W')
+                if os.path.exists(w_img_file) is False:
+                    del st.session_state['sym_charts'][sym_indx]
+                    w_img_file = None
             if w_img_file is not None:
                 if today not in w_img_file:
                     st.markdown("#### *** Chart May Not Be Current ***")
@@ -809,10 +816,17 @@ def display_symbol_charts():
                 st.markdown(f"**Weekly Prediction Strength**: {val}")
             else:
                 st.markdown("#### *** No Weekly Chart Available ***")
+                st.button("Generate Charts", key="gen_weekly_chart")
             st.markdown(f"### Daily Chart")
             sym_indx = img_sym + "_" + 'D'
-            d_img_file = 'charts/' + st.session_state['sym_charts'][sym_indx]
-            if img_sym not in d_img_file:
+            if sym_indx in st.session_state['sym_charts']:
+                d_img_file = 'charts/' + st.session_state['sym_charts'][sym_indx]
+                if os.path.exists(d_img_file) is False:
+                    del st.session_state['sym_charts'][sym_indx]
+                    d_img_file = None
+            else:
+                d_img_file = None
+            if d_img_file is not None and img_sym not in d_img_file:
                 d_img_file = get_sym_image_file(img_sym, 'D')
             if d_img_file is not None:
                 if today not in d_img_file:
@@ -834,6 +848,7 @@ def display_symbol_charts():
                 st.markdown(f"**Daily Prediction Strength**: {val}")
             else:
                 st.markdown("#### *** No Daily Chart Available ***")
+                st.button("Generate Charts", key="gen_daily_chart")
 
             st.markdown(f"=====   =====   =====   =====   ====   ====   ====    ====   ====   =====   =====   =====   =====   =====   =====   =====   =====")
 
@@ -903,6 +918,16 @@ def display_symbol_charts():
                                 expdr_biz.markdown(f"**{key}**: {ticker_data[key]}")
                     else:
                         st.markdown(f"**No Data Ticker Data Available**")
+
+    if (('gen_weekly_chart' in st.session_state and st.session_state.gen_weekly_chart
+         or ('gen_daily_chart' in st.session_state and st.session_state.gen_daily_chart))):
+        pp_w = st.session_state[ss_SymDpps_w][img_sym]
+        pp_d = st.session_state[ss_SymDpps_d][img_sym]
+        pp_w.gen_prediction_chart(save_plot=True,  show_plot=False)
+        pp_d.gen_prediction_chart(save_plot=True, show_plot=False)
+        create_charts_dict(st)
+        st.rerun()
+
     # As needed, save_plot out the updated DataFrames and PricePredict objects
     all_df_symbols = st.session_state[ss_AllDfSym]
     if len(all_df_symbols.columns) == import_cols_full:
