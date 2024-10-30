@@ -1069,9 +1069,9 @@ class PricePredict():
         with open(hparams_file, 'r') as f:
             for line in f:
                 opt_params = json.loads(line)
-                sym = next(iter(opt_params['Ticker']))
-                hyper_params = opt_params['Ticker'][sym]
-                hyper_params_s = json.dumps(opt_params['Ticker'][sym])
+                sym = opt_params['symbol']
+                hyper_params = opt_params['hparams']
+                hyper_params_s = json.dumps(hyper_params)
                 if sym == ticker:
                     self.opt_hypers = hyper_params_s
                     self.lstm_units = int(hyper_params['params']['lstm_units'])

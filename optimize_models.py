@@ -83,36 +83,29 @@ def tst_bayes_opt(in_ticker, pp_obj=None, opt_csv=None,
 
 
 def main():
-    tickers = ['AAPL', 'ABT', 'ACN', 'ADBE', 'ADM', 'ADP', 'AIG', 'ALKS', 'ALL', 'AMGN', 'AMX', 'AMZN', 'ANTM.JK', 'AON',
-               'APD', 'APTV', 'AVGO', 'AXON', 'AXP', 'BA', 'BAC', 'BAX', 'BKNG', 'BLK', 'BRK-B', 'CAT', 'CB', 'CCI', 'CI',
-               'CL', 'CLDX', 'CLS', 'CLSK', 'CMCSA', 'CNC', 'CRM', 'CRSP', 'CSCO', 'CSX', 'CVX', 'DHR', 'DIS', 'DUK', 'ECL',
-               'EGIO', 'EL', 'EMR', 'EOG', 'ERIC', 'EURUSD=X', 'EXAS', 'EXEL', 'FOLD', 'FXI', 'FXP', 'GBPUSD=X', 'GC=F',
-               'GD', 'GE', 'GILD', 'GLPG', 'GOOG', 'GOOGL', 'HAE', 'HD', 'HON', 'IART', 'IBM', 'IMAX', 'INTC', 'INTU',
-               'IRTC', 'ISRG', 'ITW', 'JAZZ', 'JD', 'JNJ', 'JPM', 'JPYUSD=X', 'KO', 'LIN', 'LIVN', 'LLY', 'LMT', 'LOW',
-               'LRCX', 'LSCC', 'MA', 'MASI', 'MCD', 'MDLZ', 'MDT', 'META', 'MMM', 'MO', 'MRK', 'MRVL', 'MSFT', 'MTCH',
-               'NEE', 'NFLX', 'NKE', 'NNDM', 'NOW', 'NVCR', 'NVDA', 'ORCL', 'PACB', 'PEP', 'PFE', 'PG', 'PLD', 'PNC', 'PSA',
-               'PTCT', 'PYPL', 'QCOM', 'RTX', 'SBUX', 'SCHW', 'SEDG', 'SO', 'SPGI', 'SYK', 'SYY', 'T', 'TMO', 'TRV', 'TSLA',
-               'TXN', 'UCTT', 'UNH', 'UPS', 'USB', 'V', 'VRTX', 'VZ', 'WM', 'WMT', 'WOLF', 'XAB=F', 'XAE=F', 'XAF=F',
-               'XAI=F', 'XAK=F', 'XAU=F', 'XNCR', 'XOM', 'ZM', '^DJI', '^GSPC', '^IXIC', '^N225', '^XAX']
+
+    # Read ./gui_data/gui_all_symbols.csv into a dataframe
+    import pandas as pd
+    df_tickers = pd.read_csv('./gui_data/gui_all_symbols.csv')
 
     already_optimized = {}
-    with open(f"./optimize_models.json", 'r') as f:
+    with open(f"./ticker_bopts.json", 'r') as f:
         for line in f:
             opt_params = json.loads(line)
-            sym = next(iter(opt_params['Ticker']))
+            sym = opt_params['symbol']
             already_optimized[sym] = opt_params
 
     ticker_pp = {}
     futures = []
     with cf.ThreadPoolExecutor(8) as ex:
-        for ticker in tickers:
+        for ticker in df_tickers['Symbol']:
             if ticker in already_optimized:
                 continue
             # Sync: Pull in Training and Prediction Data for each Ticker
             print(f"Pulling Optimization data for {ticker}...")
             pp = tst_bayes_opt(ticker, only_fetch_opt_data=True)
             ticker_pp[ticker] = pp
-        for ticker in tickers:
+        for ticker in df_tickers['Symbol']:
             if ticker in already_optimized:
                 continue
             # Async: Optimize the Model's Hyperparameters for each Ticker
@@ -122,7 +115,7 @@ def main():
             future = ex.submit(tst_bayes_opt, ticker, **kawrgs)
             futures.append(future)
         print("Waiting for tasks to complete...")
-        with open(f"./ticker_bopts.json", 'w') as f:
+        with open(f"./ticker_bopts.json", 'a') as f:
             for future in cf.as_completed(futures):
                 try:
                     pp = future.result()
@@ -130,7 +123,10 @@ def main():
                     print(f"Optimization for {ticker} generated an exception: {e}")
                 else:
                     # Write out the optimized hyperparameters to a JSON file
-                    f.write(f"{{ {pp.ticker}: {pp.opt_hypers} }}")
-                    print(f"Completed Hyperparameters Optimization: {pp.ticker}")
+                    opt_hypers_s = json.dumps(pp.opt_hypers)
+                    f.write(f'{{ "symbol": "{pp.ticker}", "hparams": {opt_hypers_s} }}\n')
+                    print(f'Completed Hyperparameters Optimization: {pp.ticker}')
+
+    print("All optimization tasks completed.")
 
 main()

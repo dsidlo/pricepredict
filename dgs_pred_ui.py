@@ -19,7 +19,6 @@ Note: All local variable are initialized in on .reset('app') method.
 """
 
 import line_profiler
-from line_profiler import profile, LineProfiler
 import os
 import sys
 import json
@@ -34,7 +33,9 @@ import futureproof as fp
 import hashlib
 import re
 import io
+import concurrent.futures as cf
 
+from line_profiler import profile, LineProfiler
 from datetime import datetime, timedelta
 from pricepredict import PricePredict
 from io import StringIO
@@ -98,7 +99,7 @@ import_cols_full = 10
 # The main window displays the charts and data for the selected symbol.
 # ======================================================================
 @profile
-def main(message):
+def  main(message):
 
     logger.info(f"*** {message} ***")
 
@@ -164,6 +165,78 @@ def main(message):
             st.success("Program Ended")
             st.stop()
 
+        # -- Add Expander for adding a new symbol
+        exp_sym = st.expander("Add/Remove Symbols", expanded=False)
+        exp_sym.text('------------------------------------------------------------')
+        st.session_state['exp_sym'] = exp_sym
+        col1, col2 = exp_sym.columns(2)
+        # -- Add a text input for adding a new symbol
+        if 'new_sym_value' not in locals():
+            new_sym_value = ''
+        bAddNewSyms = col1.button("Add New Symbols", key="ss_bAddNewSyms")
+        ti_addNewSyms = col2.text_input("Add New Symbols",
+                                           key="new_sym", label_visibility='collapsed',
+                                           value='', placeholder="Enter a new symbol")
+        # -- Add a file uploader button for importing symbols
+        bt_import_syms = "import_syms"
+        imported_data = b''
+        exp_sym.file_uploader("Import Symbols", key="import_syms",
+                                type='csv')
+        # -- Add a button for Optimize Models
+        exp_sym.button("Optimize Models", key="b_optmodels")
+        exp_sym.text('------------------------------------------------------------')
+        # -- Add a button for initiating removing the imported symbols
+        col_rm_syms1, col_rm_syms2 = exp_sym.columns(2)
+        col_rm_syms1.button("Remove Added Symbols", key="remove_imp_sym")
+        if (hasattr(st.session_state, ss_fDf_symbols_updated) and st.session_state[ss_fDf_symbols_updated]
+            # Indicate successful removal of New symbols
+            and st.session_state['imp_sums_removed'] > 0):
+            exp_sym.success(f'**[{st.session_state["imp_sums_removed"]}] New Symbols Removed.**', icon='👍')
+            st.session_state[ss_fDf_symbols_updated] = False
+        # -- Add a button for adding the new symbol
+        col_rm_syms2.button("Choose Symbols to Remove", key="bRemove_sym")
+        # -- Add a button for process the current symbols
+        col1, col2 = exp_sym.columns(2)
+        col1.button("Analyze Current Symbols", key="process_syms")
+        col2.checkbox("Force Training", key=ss_forceTraining)
+        if st.session_state.process_syms:
+            # This code results in updates to the progress bar but
+            # the main thread blocks until the processing is completes.
+            # "await" causes the block. Can we run this in a fragment?
+            prog_bar = exp_sym.progress(0, "Analyzing Symbols")
+            # await analyze_symbols(prog_bar, st.session_state[ss_DfSym])
+            analyze_symbols(st, prog_bar, st.session_state[ss_DfSym], force_training=ss_forceTraining)
+
+        elif 'prog_bar' in locals():
+            prog_bar.empty()
+
+        # -- Handle the import of symbols
+        if st.session_state.import_syms is not None and not st.session_state.bRemove_sym:
+            import_symbols(st, exp_sym)
+
+        st.sidebar.add_rows = exp_sym
+
+        # -- Handle add new symbols text input
+        if bAddNewSyms and ti_addNewSyms != '':
+            # Split on new_sym on spaces, colon, semicolon and commas
+            new_syms = ti_addNewSyms
+            new_syms = re.split(r'[\s,;]+', new_syms)
+            if new_syms[0] != '':
+                add_new_symbols(st, exp_sym, new_syms)
+                st.session_state[ss_DfSym] = update_viz_data(st, st.session_state[ss_AllDfSym])
+
+            # Save all_df_symbols
+            all_df_symbols = st.session_state[ss_AllDfSym]
+            df_symbols = st.session_state[ss_DfSym]
+            merge_and_save(all_df_symbols, df_symbols)
+            ti_addNewSyms.replace(ti_addNewSyms, '')
+
+        # -- Handle the Optimize Models button
+        if st.session_state.b_optmodels:
+            pb_opt_hparams = exp_sym.progress(0, "Optimize Symbols Hyperparameters")
+            optimize_hparams(st, pb_opt_hparams)
+
+        # ********* Add/Remove Groups *********
         exp_grps = st.expander("Add/Remove Groups", expanded=False)
         st.session_state['exp_grps'] = exp_grps
         col_add_grp1, col_add_grp2 = exp_grps.columns(2)
@@ -223,68 +296,6 @@ def main(message):
         if ss_fRmChosenSyms not in st.session_state:
             st.session_state[ss_fRmChosenSyms] = False
         rm_chosen_syms = st.session_state[ss_fRmChosenSyms]
-
-        # -- Add Expander for adding a new symbol
-        exp_sym = st.expander("Add/Remove Symbols", expanded=False)
-        st.session_state['exp_sym'] = exp_sym
-        col1, col2 = exp_sym.columns(2)
-        # -- Add a text input for adding a new symbol
-        if 'new_sym_value' not in locals():
-            new_sym_value = ''
-        bAddNewSyms = col1.button("Add New Symbols", key="ss_bAddNewSyms")
-        ti_addNewSyms = col2.text_input("Add New Symbols",
-                                           key="new_sym", label_visibility='collapsed',
-                                           value='', placeholder="Enter a new symbol")
-        imported_data = b''
-        # -- Add a file uploader button for importing symbols
-        bt_import_syms = "import_syms"
-        exp_sym.file_uploader("Import Symbols", key="import_syms",
-                                type='csv')
-        # -- Add a button for initiating removing the imported symbols
-        exp_sym.button("Remove New Symbols", key="remove_imp_sym")
-        if (hasattr(st.session_state, ss_fDf_symbols_updated) and st.session_state[ss_fDf_symbols_updated]
-            # Indicate successful removal of New symbols
-            and st.session_state['imp_sums_removed'] > 0):
-            exp_sym.success(f'**[{st.session_state["imp_sums_removed"]}] New Symbols Removed.**', icon='👍')
-            st.session_state[ss_fDf_symbols_updated] = False
-
-        # -- Add a button for adding the new symbol
-        exp_sym.button("Choose Symbols to Remove", key="bRemove_sym")
-
-        # -- Add a button for process the current symbols
-        col1, col2 = exp_sym.columns(2)
-        col1.button("Analyze Current Symbols", key="process_syms")
-        col2.checkbox("Force Training", key=ss_forceTraining)
-        if st.session_state.process_syms:
-            # This code results in updates to the progress bar but
-            # the main thread blocks until the processing is completes.
-            # "await" causes the block. Can we run this in a fragment?
-            prog_bar = exp_sym.progress(0, "Analyzing Symbols")
-            # await analyze_symbols(prog_bar, st.session_state[ss_DfSym])
-            analyze_symbols(st, prog_bar, st.session_state[ss_DfSym], force_training=ss_forceTraining)
-
-        elif 'prog_bar' in locals():
-            prog_bar.empty()
-
-        if st.session_state.import_syms is not None and not st.session_state.bRemove_sym:
-            import_symbols(st, exp_sym)
-
-        st.sidebar.add_rows = exp_sym
-
-        # -- Handle add new symbols text input
-        if bAddNewSyms and ti_addNewSyms != '':
-            # Split on new_sym on spaces, colon, semicolon and commas
-            new_syms = ti_addNewSyms
-            new_syms = re.split(r'[\s,;]+', new_syms)
-            if new_syms[0] != '':
-                add_new_symbols(st, exp_sym, new_syms)
-                st.session_state[ss_DfSym] = update_viz_data(st, st.session_state[ss_AllDfSym])
-
-            # Save all_df_symbols
-            all_df_symbols = st.session_state[ss_AllDfSym]
-            df_symbols = st.session_state[ss_DfSym]
-            merge_and_save(all_df_symbols, df_symbols)
-            ti_addNewSyms.replace(ti_addNewSyms, '')
 
         # -- Add Expander for filtering the symbols
         exp_sort_filter = st.expander("Filter", expanded=False)
@@ -1658,6 +1669,152 @@ def charts_cleanup(st, period):
                         files_deleted += 1
 
     return files_deleted
+
+def tst_prediction_analysis(in_ticker):
+    # Create an instance of the price prediction object
+    pp = PricePredict(model_dir='./models/',
+                      chart_dir='./charts/',
+                      preds_dir='./predictions/')
+
+    ticker = in_ticker
+    test_ticker = "Test-" + ticker
+    # Data download dates
+    start_date = "2015-01-01"
+    end_date = "2023-12-31"
+    pred_start_date = "2024-01-01"
+    pred_end_date = "2024-10-25"
+
+    pp.cache_training_data(ticker, start_date, end_date, PricePredict.PeriodDaily)
+    pp.cache_prediction_data(ticker, pred_start_date, pred_end_date, PricePredict.PeriodDaily)
+    pp.cached_train_predict_report(save_plot=False, show_plot=True)
+
+    return pp
+
+
+def tst_bayes_opt(in_ticker, pp_obj=None, opt_csv=None,
+                  only_fetch_opt_data=False, do_optimize=False,
+                  cache_train=False, cache_predict=False, train_and_predict=False):
+    if pp_obj is None:
+        # Create an instance of the price prediction object
+        pp = PricePredict(model_dir='./models/',
+                          chart_dir='./charts/',
+                          preds_dir='./predictions/')
+    else:
+        pp = pp_obj
+
+    # Load data from Yahoo Finance
+    ticker = in_ticker
+    # Training Data
+    start_date = "2015-01-01"
+    end_date = "2023-12-31"
+    # Prediction Data
+    pred_start_date = "2024-01-01"
+    pred_end_date = "2024-10-25"
+
+    if only_fetch_opt_data:
+        data, pp.features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+
+        # Augment the data with additional indicators/features
+        if data is None:
+            print(f"'Close' column not found in {ticker}'s data. Skipping...")
+            return None
+
+        return pp
+
+    if do_optimize:
+        aug_data, features, targets, dates_data = pp.augment_data(pp.orig_data, 0)
+
+        # Scale the data so the model can use it more effectively
+        scaled_data, scaler = pp.scale_data(aug_data)
+
+        # Prepare the scaled data for model inputs
+        X, y = pp.prep_model_inputs(scaled_data, pp.features)
+
+        # Use a small batch size and epochs to test the model training
+        pp.epochs = 3
+        pp.batch_size = 1
+
+        # Train the model
+        model, y_pred, mse = pp.train_model(X, y)
+
+        # Perform Bayesian optimization
+        pp.bayesian_optimization(X, y, opt_csv=opt_csv)
+
+    if cache_train:
+        pp.cache_training_data(ticker, start_date, end_date, PricePredict.PeriodDaily)
+    if cache_predict:
+        pp.cache_prediction_data(ticker, pred_start_date, pred_end_date, PricePredict.PeriodDaily)
+    if train_and_predict:
+        pp.cached_train_predict_report(save_plot=False, show_plot=True)
+
+    return pp
+
+
+def optimize_hparams(st, prog_bar):
+
+    # Read ./gui_data/gui_all_symbols.csv into a dataframe
+    import pandas as pd
+    df_tickers = pd.read_csv('./gui_data/gui_all_symbols.csv')
+
+    already_optimized = {}
+    with open(f"./gui_data/ticker_bopts.json", 'r') as f:
+        for line in f:
+            if line is not None and line.strip() != '':
+                opt_params = json.loads(line)
+                sym = opt_params['symbol']
+                print(f"---> Sym: {sym}")
+                already_optimized[sym] = opt_params
+
+    ticker_pp = {}
+    futures = []
+    opt_cnt = 1
+
+    with cf.ThreadPoolExecutor(8) as ex:
+        for ticker in df_tickers['Symbol']:
+            if ticker in already_optimized:
+                continue
+            # Sync: Pull in Training and Prediction Data for each Ticker
+            print(f"Pulling Optimization data for {ticker}...")
+            pp = tst_bayes_opt(ticker, only_fetch_opt_data=True)
+            ticker_pp[ticker] = pp
+        opt_cnt = 0
+        for ticker in df_tickers['Symbol']:
+            if ticker in already_optimized:
+                continue
+            # Update the progress bar
+            prog_bar.progress(int(opt_cnt / len(df_tickers) * 100),
+                              f"Loading Model Data: {ticker} ({opt_cnt}/{len(df_tickers)})")
+            # Async: Optimize the Model's Hyperparameters for each Ticker
+            print(f"Optimizing model for {ticker}...")
+            pp = ticker_pp[ticker]
+            kawrgs={'pp_obj': pp, 'do_optimize': True}
+            future = ex.submit(tst_bayes_opt, ticker, **kawrgs)
+            futures.append(future)
+
+        if len(futures) == 0:
+            st.info("No optimization tasks were created.")
+
+        print("Waiting for tasks to complete...")
+        with open(f"./ticker_bopts.json", 'a') as f:
+            for future in cf.as_completed(futures):
+                try:
+                    pp = future.result()
+                    # Update the progress bar
+                    prog_bar.progress(int(opt_cnt / len(futures) * 100),
+                                      f"Optimizing Model: {pp.ticker} ({opt_cnt}/{len(futures)})")
+                except Exception as e:
+                    print(f"Optimization for {ticker} generated an exception: {e}")
+                else:
+                    # Write out the optimized hyperparameters to a JSON file
+                    opt_hypers_s = json.dumps(pp.opt_hypers)
+                    f.write(f'{{ "symbol": "{pp.ticker}", "hparams": {opt_hypers_s} }}\n')
+                    print(f'Completed Hyperparameters Optimization: {pp.ticker}')
+                opt_cnt += 1
+
+    if opt_cnt > 0:
+        st.info(f"All [{opt_cnt}] optimization tasks completed.")
+
+    print("All optimization tasks completed.")
 
 
 if __name__ == "__main__":
