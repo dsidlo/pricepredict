@@ -39,6 +39,7 @@ from line_profiler import profile, LineProfiler
 from datetime import datetime, timedelta
 from pricepredict import PricePredict
 from io import StringIO
+from streamlit_js_eval import streamlit_js_eval
 
 # Change working directory to the ~/workspace/pricepredict directory
 os.chdir('/home/dsidlo/workspace/pricepredict')
@@ -360,7 +361,8 @@ def  main(message):
         if hasattr(st.session_state, ss_fYesRemoveNewSyms) and st.session_state.yes_remove_imp_sym:
             if hasattr(st.session_state, ss_fDf_symbols_updated) and st.session_state[ss_fDf_symbols_updated]:
                 st.session_state[ss_fDf_symbols_updated] = False
-                st.rerun()
+                # st.rerun()
+                streamlit_js_eval(js_expressions="parent.window.location.reload()")
         # =============================================================
 
         # Remove Chosen Symbols =======================================
@@ -390,7 +392,8 @@ def  main(message):
             if dfSave_syms:
                 logger.debug(f"1> Saving all_df_symbols to {guiAllSymbolsCsv}")
                 merge_and_save(all_df_symbols, df_symbols)
-            st.rerun()
+            # st.rerun()
+            streamlit_js_eval(js_expressions="parent.window.location.reload()")
         if hasattr(st.session_state, ss_bCancelRmSyms) and st.session_state.cancel_rm_syms:
             st.session_state[ss_fRmChosenSyms] = False  # Turns off the Action Buttons
             logger.info('*** Canceled: Remove Chosen Symbols ***')
@@ -699,6 +702,7 @@ def add_new_symbols(st, exp_sym, syms):
     df_symbols = st.session_state[ss_DfSym]
     added_symbols = []
     already_exists = []
+    invalid_symbols = []
     for sym in syms:
         # Verify with yahoo finance that the symbol is valid, and get the long name
         logger.info(f"1. New Symbols to be added: {st.session_state.new_sym}")
@@ -707,7 +711,7 @@ def add_new_symbols(st, exp_sym, syms):
         if sym not in st.session_state[ss_DfSym].Symbol.values:
             # Verify with yahoo finance that the symbol is valid, and get the long name
             new_ticker, long_name = getTickerLongName(sym)
-            if new_ticker is not None:
+            if long_name != '':
                 new_row = pd.DataFrame({'Symbol': sym,
                                         'LongName': long_name,
                                         'Groups': 'Added', 'Trend': '',
@@ -727,6 +731,8 @@ def add_new_symbols(st, exp_sym, syms):
                 all_df_symbols.reindex()
 
                 added_symbols.append(sym)
+            else:
+                invalid_symbols.append(sym)
         else:
             already_exists.append(sym)
 
@@ -740,6 +746,8 @@ def add_new_symbols(st, exp_sym, syms):
         if len(already_exists) > 0:
             txt += f"Symbols Already Exist: {already_exists}"
         txt += f"No New Symbols to Add."
+        if len(invalid_symbols) > 0:
+            txt += f"\n\nInvalid Symbols: {invalid_symbols}"
         st.session_state['exp_sym'].warning(txt)
         return
 
@@ -758,7 +766,9 @@ def add_new_symbols(st, exp_sym, syms):
 
     txt = f"New Symbols Added: {added_symbols}"
     if len(already_exists) > 0:
-        txt += f"\nSymbols Already Exist: {already_exists}"
+        txt += f"\n\nSymbols Already Exist: {already_exists}"
+    if len(invalid_symbols) > 0:
+        txt += f"\n\nInvalid Symbols: {invalid_symbols}"
     st.session_state['exp_sym'].warning(txt)
 
     # Run an analysis on all symbols
@@ -768,6 +778,7 @@ def add_new_symbols(st, exp_sym, syms):
                     added_syms=added_symbols)
 
     st.info("Please Refresh Page After Adding Symbols.")
+    st.experimental_refresh()
 
 def display_symbol_charts():
     if (hasattr(st.session_state, ss_DfSym) is True and
@@ -1108,7 +1119,7 @@ def analyze_symbols(st, prog_bar, df_symbols, added_syms=None, force_training=Fa
     merge_and_save(all_df_symbols, df_symbols)
 
     # Save out the updated DataFrames and PricePredict objects
-    store_pp_objects(st)
+    store_pp_objects(st, prog_bar)
     logger.info("--- Analyzing Symbols: Completed ---")
 
     # Remove old PricePredict objects
@@ -1146,7 +1157,7 @@ def load_pp_objects(st):
         logger.error("PricePredict object files do not exist")
         st.session_state[ss_SymDpps_d] = sym_dpps_d_
         st.session_state[ss_SymDpps_w] = sym_dpps_w_
-        sync_dpps_objects(st)
+        sync_dpps_objects(st, None)
         return sym_dpps_d_, sym_dpps_w_
 
     # Make sure that files are not zero length
@@ -1193,7 +1204,7 @@ def load_pp_objects(st):
     st.session_state[ss_SymDpps_d] = sym_dpps_d_
     st.session_state[ss_SymDpps_w] = sym_dpps_w_
 
-    sync_dpps_objects(st)
+    sync_dpps_objects(st, None)
 
     return sym_dpps_d_, sym_dpps_w_
 
@@ -1226,8 +1237,9 @@ def sync_dpps_objects(st, prog_bar):
                 del st.session_state[ss_SymDpps_d][sym]
                 object_removed.append(sym+':d')
         i += 1
-        # Update the progress bar
-        prog_bar.progress(int(i / total_syms * 100), f"Validating Daily Object: {sym} ({i}/{total_syms})")
+        if prog_bar is not None:
+            # Update the progress bar
+            prog_bar.progress(int(i / total_syms * 100), f"Validating Daily Object: {sym} ({i}/{total_syms})")
 
     i = 0
     total_syms = len(sym_dpp_d)
@@ -1247,8 +1259,9 @@ def sync_dpps_objects(st, prog_bar):
                 del st.session_state[ss_SymDpps_w][sym]
                 object_removed.append(sym+':w')
         i += 1
-        # Update the progress bar
-        prog_bar.progress(int(i / total_syms * 100), f"Validating Weekly Object: {sym} ({i}/{total_syms})")
+        if prog_bar is not None:
+            # Update the progress bar
+            prog_bar.progress(int(i / total_syms * 100), f"Validating Weekly Object: {sym} ({i}/{total_syms})")
 
     if len(object_removed) > 0:
         st.session_state['exp_sym'].warning(f"Removed UnPicklable PricePredict objects: {object_removed}")
@@ -1265,8 +1278,9 @@ def sync_dpps_objects(st, prog_bar):
             st.session_state[ss_SymDpps_w][sym] = pp
 
 
-def store_pp_objects(st):
-    sync_dpps_objects(st)
+def store_pp_objects(st, prog_bar):
+
+    sync_dpps_objects(st, prog_bar)
     logger.info("Saving PricePredict objects (Daily Object)...")
     st.session_state['exp_sym'].info("Saving PricePredict Daily objects...")
     # Save out the PricePredict objects
