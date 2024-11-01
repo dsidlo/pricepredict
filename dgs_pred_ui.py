@@ -793,8 +793,11 @@ def display_symbol_charts():
     # Get todays date as a string in the format "YYYY-MM-DD"
     today = time.strftime("%Y-%m-%d")
 
+    # Get current day of week
+    day_of_week = datetime.today().weekday()
+
     img_cols = st.columns([1], gap='small', vertical_alignment='center')
-    with img_cols[0]:
+    with (img_cols[0]):
         chart_missing = False
         # Ticker Chosen: Show tickers charts and data
         if 'img_sym' in locals() and img_sym is not None:
@@ -815,7 +818,20 @@ def display_symbol_charts():
                     del st.session_state['sym_charts'][sym_indx]
                     w_img_file = None
             if w_img_file is not None:
-                if today not in w_img_file:
+                # Get the date from the chart image file name
+                wk_mtch = re.match(r'.*_(\d{4}-\d{2}-\d{2})\s+', w_img_file)
+                if wk_mtch is not None:
+                    wk_chart_date = wk_mtch.group(1)
+                    wk_chart_dt = datetime.strptime(wk_chart_date, "%Y-%m-%d")
+                else:
+                    raise ValueError(f"Error parsing date from Weekly chart file name: {w_img_file}")
+                # Get date of current week's friday
+                todays_dt = datetime.today()
+                if todays_dt.weekday() == 4:
+                    todays_friday = todays_dt
+                else:
+                    todays_friday = todays_dt - timedelta(days=todays_friday.weekday() - 4)
+                if wk_chart_dt < todays_friday:
                     st.markdown("#### *** Chart May Not Be Current ***")
                 # Display the daily chart image
                 try:
@@ -850,7 +866,20 @@ def display_symbol_charts():
             if d_img_file is not None and img_sym not in d_img_file:
                 d_img_file = get_sym_image_file(img_sym, 'D')
             if d_img_file is not None:
-                if today not in d_img_file:
+                # Get the date from the chart image file name
+                dy_mtch = re.match(r'.*_(\d{4}-\d{2}-\d{2})\s+', w_img_file)
+                if dy_mtch is not None:
+                    dy_chart_date = dy_mtch.group(1)
+                    dy_chart_dt = datetime.strptime(dy_chart_date, "%Y-%m-%d")
+                else:
+                    raise ValueError(f"Error parsing date from Daily chart file name: {w_img_file}")
+                # Get date less 1 days, if a weekday
+                # Get date less 2 days. if a weekend
+                if dy_chart_dt.weekday() < 5:
+                    chk_dt = datetime.today() - timedelta(days=1)
+                else:
+                    chk_dt = datetime.today() - timedelta(days=2)
+                if dy_chart_dt < chk_dt:
                     st.markdown("#### *** Chart May Not Be Current ***")
                 # Display the daily chart image
                 try:
