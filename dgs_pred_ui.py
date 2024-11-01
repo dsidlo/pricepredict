@@ -767,6 +767,7 @@ def add_new_symbols(st, exp_sym, syms):
     analyze_symbols(st, prog_bar, df_symbols,
                     added_syms=added_symbols)
 
+    st.info("Please Refresh Page After Adding Symbols.")
 
 def display_symbol_charts():
     if (hasattr(st.session_state, ss_DfSym) is True and
@@ -1072,12 +1073,13 @@ def analyze_symbols(st, prog_bar, df_symbols, added_syms=None, force_training=Fa
 
         logger.debug(f"=== Checking on completed futures ...")
         # for future in concurrent.futures.as_completed(futures):
+        sym_ = ''
         for future in tm.as_completed():
             logger.debug(f"=== Checking futures ...")
 
             i += 1
             # Update the progress bar
-            prog_bar.progress(int(i / total_syms * 100), f"Analyzing: {row.Symbol} ({i}/{total_syms})")
+            prog_bar.progress(int(i / total_syms * 100), f"Analysis Completed: {sym_} ({i}/{total_syms})")
 
             if isinstance(future, Exception):
                 logger.error(f"Error processing symbol: {future.args[0], future.args[1]} {future.result}")
@@ -1196,7 +1198,7 @@ def load_pp_objects(st):
     return sym_dpps_d_, sym_dpps_w_
 
 
-def sync_dpps_objects(st):
+def sync_dpps_objects(st, prog_bar):
     logger.info("Remove PricePredict objects that are not in the DataFrame")
     df_symbols = st.session_state[ss_AllDfSym]
     if ss_SymDpps_d not in st.session_state.keys() or ss_SymDpps_w not in st.session_state.keys():
@@ -1206,6 +1208,8 @@ def sync_dpps_objects(st):
     sym_dpp_d = st.session_state[ss_SymDpps_d].copy()
     sym_dpp_w = st.session_state[ss_SymDpps_w].copy()
     object_removed = []
+    i = 0
+    total_syms = len(sym_dpp_d)
     for sym in sym_dpp_d:
         if sym not in df_symbols.Symbol.values:
             del st.session_state[ss_SymDpps_d][sym]
@@ -1221,6 +1225,12 @@ def sync_dpps_objects(st):
                 # Remove the unpicklable object
                 del st.session_state[ss_SymDpps_d][sym]
                 object_removed.append(sym+':d')
+        i += 1
+        # Update the progress bar
+        prog_bar.progress(int(i / total_syms * 100), f"Validating Daily Object: {sym} ({i}/{total_syms})")
+
+    i = 0
+    total_syms = len(sym_dpp_d)
     for sym in sym_dpp_w:
         if sym not in df_symbols.Symbol.values:
             del st.session_state[ss_SymDpps_w][sym]
@@ -1236,9 +1246,12 @@ def sync_dpps_objects(st):
                 # Remove the unpicklable object
                 del st.session_state[ss_SymDpps_w][sym]
                 object_removed.append(sym+':w')
+        i += 1
+        # Update the progress bar
+        prog_bar.progress(int(i / total_syms * 100), f"Validating Weekly Object: {sym} ({i}/{total_syms})")
 
     if len(object_removed) > 0:
-        st.session_state['exp_sym'].warning(f"Removed PricePredict objects: {object_removed}")
+        st.session_state['exp_sym'].warning(f"Removed UnPicklable PricePredict objects: {object_removed}")
 
     # Make sure that we have PricePredict objects for all the symbols in the DataFrame
     for sym in df_symbols.Symbol.values:
@@ -1255,7 +1268,7 @@ def sync_dpps_objects(st):
 def store_pp_objects(st):
     sync_dpps_objects(st)
     logger.info("Saving PricePredict objects (Daily Object)...")
-    st.session_state['exp_sym'].info("Saving PricePredict objects...")
+    st.session_state['exp_sym'].info("Saving PricePredict Daily objects...")
     # Save out the PricePredict objects
     sym_dpps_d_ = st.session_state[ss_SymDpps_d]
     try:
@@ -1268,8 +1281,10 @@ def store_pp_objects(st):
                 f.truncate()
     except Exception as e:
         logger.error(f"Error {dill_sym_dpps_d} - len[{len(sym_dpps_d_)}]: {e}")
+        st.session_state['exp_sym'].error(f"Error saving Daily PricePredict objects: {e}")
 
     logger.info("Saving PricePredict objects (Weekly Object)...")
+    st.session_state['exp_sym'].info("Saving PricePredict Weekly objects...")
     sym_dpps_w_ = st.session_state[ss_SymDpps_w]
     try:
         if len(sym_dpps_w_) > 0:
@@ -1282,7 +1297,7 @@ def store_pp_objects(st):
 
     except Exception as e:
         logger.error(f"Error saving  {dill_sym_dpps_w} - len[{len(sym_dpps_w_)}]: {e}")
-        st.session_state['exp_sym'].error(f"Error saving PricePredict objects: {e}")
+        st.session_state['exp_sym'].error(f"Error saving Weekly PricePredict objects: {e}")
 
 
 def task_pull_data(symbol_, dpp):

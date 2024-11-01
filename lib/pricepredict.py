@@ -233,7 +233,7 @@ class PricePredict():
         self.seasonal_chart_path = ''     # The path to the seasonal decomposition chart
         self.period = period              # The period for the data (D, W)
         self.model = None                 # The current loaded model
-        self.opt_hypers = None            # The optimized hyperparameters
+        self.opt_hypers = {}              # The optimized hyperparameters
         self.lstm_units = lstm_units                    # The current models units
         self.lstm_dropout = lstm_dropout                # The current models dropout
         self.adam_learning_rate = adam_learning_rate    # The current models learning rate
@@ -1073,7 +1073,7 @@ class PricePredict():
                 hyper_params = opt_params['hparams']
                 hyper_params_s = json.dumps(hyper_params)
                 if sym == ticker:
-                    self.opt_hypers = hyper_params_s
+                    self.opt_hypers = hyper_params
                     self.lstm_units = int(hyper_params['params']['lstm_units'])
                     self.lstm_dropout = hyper_params['params']['lstm_dropout']
                     self.adam_learning_rate = hyper_params['params']['adam_learning_rate']
@@ -1509,7 +1509,7 @@ class PricePredict():
             plt_ohlcv = self.orig_data.iloc[split_start:, [0, 1, 2, 3, 4, 5, 6]].copy()
         else:
             plt_ohlcv = self.orig_data.iloc[split_start:, [0, 1, 2, 3, 4, 5]].copy()
-        if len(plt_ohlcv) <= 0:
+        if len(plt_ohlcv) == 0:
             # Handle the side effect of dealing with data from the prediction cache...
             if self.orig_data.shape[1] == 7:
                 plt_ohlcv = self.orig_data.iloc[:, [0, 1, 2, 3, 4, 5, 6]].copy()
@@ -1517,6 +1517,9 @@ class PricePredict():
                 plt_ohlcv = self.orig_data.iloc[:, [0, 1, 2, 3, 4, 5]].copy()
 
         ohlcv = plt_ohlcv.copy()
+        if 'index' in ohlcv.columns:
+            ohlcv.drop(columns='index', inplace=True)
+            plt_ohlcv.drop(columns='index', inplace=True)
         ohlcv.reset_index()
 
         ticker = self.ticker
@@ -1542,6 +1545,12 @@ class PricePredict():
         else:
             last_close = df_plt_test_usd['Adj Close'].iloc[-1]
             last_adj_close = df_plt_test_usd['Adj Close'].iloc[-1]
+            if 'Date' not in df_plt_test_usd.columns:
+                df_dates = self.date_data.iloc[-len(df_plt_test_usd):]
+                df_plt_test_usd.reset_index(drop=True, inplace=True)
+                # Force the first column of df_dates to be 'Date'...
+                df_dates = pd.DataFrame(df_dates, columns=['Date'])
+                df_plt_test_usd = pd.concat([df_dates, df_plt_test_usd], axis=1)
             last_date = df_plt_test_usd['Date'].iloc[-1]
             next_date = pd.to_datetime(last_date) + self.next_pd_DateOffset()
             new_row = {"Date": next_date,
