@@ -154,3 +154,10 @@
 { "symbol": "IONS", "hparams": {"target": -0.004712023306638002, "params": {"adam_learning_rate": 0.042054735585266546, "lstm_dropout": 0.13050113287798984, "lstm_units": 118.46974158919906}} }
 { "symbol": "HUBS", "hparams": {"target": -0.0029769008979201317, "params": {"adam_learning_rate": 0.04795860198827035, "lstm_dropout": 0.10781695765524467, "lstm_units": 32.04847287690038}} }
 { "symbol": "WM", "hparams": {"target": -0.0030288170091807842, "params": {"adam_learning_rate": 0.016690331305152736, "lstm_dropout": 0.15948821444592085, "lstm_units": 69.78905229467057}} }
+{ "symbol": "ALGM", "hparams": {"target": -0.0066268788650631905, "params": {"adam_learning_rate": 0.01915704647548995, "lstm_dropout": 0.2216968971838151, "lstm_units": 149.54544068562126}} }
+{ "symbol": "INCY", "hparams": {"target": -0.0022905918303877115, "params": {"adam_learning_rate": 0.03603601258676692, "lstm_dropout": 0.1478389418831314, "lstm_units": 68.14023290675219}} }
+{ "symbol": "NBIX", "hparams": {"target": -0.006120402365922928, "params": {"adam_learning_rate": 0.027035827195399896, "lstm_dropout": 0.1924737135142599, "lstm_units": 230.6996953798314}} }
+{ "symbol": "WMT", "hparams": {"target": -0.005077647045254707, "params": {"adam_learning_rate": 0.02287778161441057, "lstm_dropout": 0.2763629527962946, "lstm_units": 111.65665200349937}} }
+{ "symbol": "^NYA", "hparams": {"target": -0.00355499517172575, "params": {"adam_learning_rate": 0.01915704647548995, "lstm_dropout": 0.2216968971838151, "lstm_units": 149.54544068562126}} }
+{ "symbol": "OPK", "hparams": {"target": -0.0023016086779534817, "params": {"adam_learning_rate": 0.024707468359240314, "lstm_dropout": 0.4675728811152078, "lstm_units": 177.69103453747508}} }
+{ "symbol": "SRCL", "hparams": {"target": -0.002419820288196206, "params": {"adam_learning_rate": 0.07109918520180851, "lstm_dropout": 0.10823379771832098, "lstm_units": 249.25980688428672}} }

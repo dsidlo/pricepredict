@@ -151,20 +151,19 @@ def  main(message):
     # The side bar controls most of what happens in the app.
     # ==============================================================
     with (st.sidebar):
-        st.sidebar.title("*Price Prediction*")
-        st.sidebar.markdown("## Symbols")
+        st.sidebar.title("*Price Prediction for Swing Trading*")
 
         # Add Groups ==========================================
         if ss_GroupsList not in st.session_state:
             st.session_state[ss_GroupsList] = []
         # Add Expander for adding and removing groupings
-        st.button("End Program", key='bEndProgram')
-        if st.session_state.bEndProgram:
-            create_charts_dict(st)
-            charts_cleanup(st, PricePredict.PeriodDaily)
-            charts_cleanup(st, PricePredict.PeriodWeekly)
-            st.success("Program Ended")
-            st.stop()
+        # st.button("End Program", key='bEndProgram')
+        # if st.session_state.bEndProgram:
+        #     create_charts_dict(st)
+        #     charts_cleanup(st, PricePredict.PeriodDaily)
+        #     charts_cleanup(st, PricePredict.PeriodWeekly)
+        #     st.success("Program Ended")
+        #     st.stop()
 
         # -- Add Expander for adding a new symbol
         exp_sym = st.expander("Add/Remove Symbols", expanded=False)
@@ -201,12 +200,9 @@ def  main(message):
         col1.button("Analyze Current Symbols", key="process_syms")
         col2.checkbox("Force Training", key=ss_forceTraining)
         if st.session_state.process_syms:
-            # This code results in updates to the progress bar but
-            # the main thread blocks until the processing is completes.
-            # "await" causes the block. Can we run this in a fragment?
-            prog_bar = exp_sym.progress(0, "Analyzing Symbols")
-            # await analyze_symbols(prog_bar, st.session_state[ss_DfSym])
-            analyze_symbols(st, prog_bar, st.session_state[ss_DfSym], force_training=ss_forceTraining)
+            with exp_sym, st.spinner("Analyzing Symbols (Please be patient)..."):
+                prog_bar = exp_sym.progress(0, "Analyzing Symbols")
+                analyze_symbols(st, prog_bar, st.session_state[ss_DfSym], force_training=ss_forceTraining)
 
         elif 'prog_bar' in locals():
             prog_bar.empty()
@@ -234,8 +230,9 @@ def  main(message):
 
         # -- Handle the Optimize Models button
         if st.session_state.b_optmodels:
-            pb_opt_hparams = exp_sym.progress(0, "Optimize Symbols Hyperparameters")
-            optimize_hparams(st, pb_opt_hparams)
+            with exp_sym, st.spinner("Optimizing Models (Please be patient)..."):
+                pb_opt_hparams = exp_sym.progress(0, "Optimize Symbols Hyperparameters")
+                optimize_hparams(st, pb_opt_hparams)
 
         # ********* Add/Remove Groups *********
         exp_grps = st.expander("Add/Remove Groups", expanded=False)
@@ -771,11 +768,12 @@ def add_new_symbols(st, exp_sym, syms):
         txt += f"\n\nInvalid Symbols: {invalid_symbols}"
     st.session_state['exp_sym'].warning(txt)
 
-    # Run an analysis on all symbols
-    prog_bar = exp_sym.progress(0, "Analyzing Symbols")
     # await analyze_symbols(prog_bar, st.session_state[ss_DfSym])
-    analyze_symbols(st, prog_bar, df_symbols,
-                    added_syms=added_symbols)
+    with exp_sym, st.spinner("Analyzing Symbols (Please be patient)..."):
+        # Run an analysis on all symbols
+        prog_bar = exp_sym.progress(0, "Analyzing Symbols")
+        analyze_symbols(st, prog_bar, df_symbols,
+                        added_syms=added_symbols)
 
     st.info("Please Refresh Page After Adding Symbols.")
     st.experimental_refresh()
@@ -1809,11 +1807,14 @@ def optimize_hparams(st, prog_bar):
             ticker_pp[ticker] = pp
         opt_cnt = 0
         for ticker in df_tickers['Symbol']:
-            if ticker in already_optimized:
-                continue
+            opt_cnt += 1
             # Update the progress bar
             prog_bar.progress(int(opt_cnt / len(df_tickers) * 100),
                               f"Loading Model Data: {ticker} ({opt_cnt}/{len(df_tickers)})")
+
+            if ticker in already_optimized:
+                continue
+
             # Async: Optimize the Model's Hyperparameters for each Ticker
             print(f"Optimizing model for {ticker}...")
             pp = ticker_pp[ticker]
@@ -1825,13 +1826,11 @@ def optimize_hparams(st, prog_bar):
             st.info("No optimization tasks were created.")
 
         print("Waiting for tasks to complete...")
-        with open(f"./ticker_bopts.json", 'a') as f:
+        with open(f"./gui_data/ticker_bopts.json", 'a') as f:
+            opt_cnt = 0
             for future in cf.as_completed(futures):
                 try:
                     pp = future.result()
-                    # Update the progress bar
-                    prog_bar.progress(int(opt_cnt / len(futures) * 100),
-                                      f"Optimizing Model: {pp.ticker} ({opt_cnt}/{len(futures)})")
                 except Exception as e:
                     print(f"Optimization for {ticker} generated an exception: {e}")
                 else:
@@ -1840,6 +1839,9 @@ def optimize_hparams(st, prog_bar):
                     f.write(f'{{ "symbol": "{pp.ticker}", "hparams": {opt_hypers_s} }}\n')
                     print(f'Completed Hyperparameters Optimization: {pp.ticker}')
                 opt_cnt += 1
+                # Update the progress bar
+                prog_bar.progress(int(opt_cnt / len(futures) * 100),
+                                  f"Completed Model Optimization: {pp.ticker} ({opt_cnt}/{len(futures)})")
 
     if opt_cnt > 0:
         st.info(f"All [{opt_cnt}] optimization tasks completed.")
