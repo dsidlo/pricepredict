@@ -880,7 +880,8 @@ def display_symbol_charts():
             if 'sb_Sentiment' in st.session_state and st.session_state.sb_Sentiment:
                 if hasattr(pp, 'sentiment_text') is False or pp.sentiment_text == '':
                     pp.groq_sentiment()
-                expd_senti.text(pp.sentiment_text + '\n\n' + json.dumps(pp.sentiment_json, indent=3))
+                expd_senti.markdown(pp.sentiment_text + '\n\n' +
+                                    '```json\n' + json.dumps(pp.sentiment_json, indent=3) + '\n```')
 
             if img_sym not in st.session_state[ss_SymDpps_d]:
                 logger.error(f"Symbol [{img_sym}] not found in PricePredict objects")
