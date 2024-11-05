@@ -41,6 +41,7 @@ from pricepredict import PricePredict
 from io import StringIO
 from streamlit_js_eval import streamlit_js_eval
 
+
 # Change working directory to the ~/workspace/pricepredict directory
 os.chdir('/home/dsidlo/workspace/pricepredict')
 
@@ -152,7 +153,7 @@ def  main(message):
     # ==============================================================
     with (st.sidebar):
         st.sidebar.title("*Price Prediction for Swing Trading*")
-
+        st.checkbox("Interactive Charts", key='cbInteractiveCharts')
         # Add Groups ==========================================
         if ss_GroupsList not in st.session_state:
             st.session_state[ss_GroupsList] = []
@@ -432,7 +433,7 @@ def  main(message):
                 st.rerun()  # Refresh the page
         # =====================================================
 
-    display_symbol_charts()
+    display_symbol_charts(interactive_charts=st.session_state.cbInteractiveCharts)
 
 def merge_and_save(all_df_symbols, df_symbols):
     # Merge df_symbols with all_df_symbols
@@ -778,7 +779,8 @@ def add_new_symbols(st, exp_sym, syms):
     st.info("Please Refresh Page After Adding Symbols.")
     st.experimental_refresh()
 
-def display_symbol_charts():
+
+def display_symbol_charts(interactive_charts=True):
     if (hasattr(st.session_state, ss_DfSym) is True and
         (hasattr(st.session_state, 'dfSymbols') and
          ((hasattr(st.session_state.dfSymbols, 'selection') is False)
@@ -827,15 +829,23 @@ def display_symbol_charts():
                     raise ValueError(f"Error parsing date from Weekly chart file name: {w_img_file}")
                 # Get date of current week's friday
                 todays_dt = datetime.today()
-                if todays_dt.weekday() == 4:
-                    todays_friday = todays_dt
-                else:
+                todays_friday = todays_dt
+                if todays_dt.weekday() != 4:
                     todays_friday = todays_dt - timedelta(days=todays_friday.weekday() - 4)
                 if wk_chart_dt < todays_friday:
                     st.markdown("#### *** Chart May Not Be Current ***")
                 # Display the daily chart image
                 try:
-                    st.image(w_img_file, use_column_width='auto')
+                    if interactive_charts:
+                        try:
+                            pp_w = st.session_state[ss_SymDpps_w][img_sym]
+                            file_path, fig = pp_w.gen_prediction_chart(save_plot=False, show_plot=True)
+                            st.pyplot(fig)
+                        except Exception as e:
+                            st.image(w_img_file, use_column_width='auto')
+                            st.warning(f"Error displaying interactive chart: {e}")
+                    else:
+                        st.image(w_img_file, use_column_width='auto')
                 except Exception as e:
                     logger.error(f"Error displaying chart [{w_img_file}]:\n{e}")
                 # Create expander for prediction analysis of weekly chart
@@ -883,7 +893,16 @@ def display_symbol_charts():
                     st.markdown("#### *** Chart May Not Be Current ***")
                 # Display the daily chart image
                 try:
-                    st.image(d_img_file, use_column_width='auto')
+                    if interactive_charts:
+                        try:
+                            pp_d = st.session_state[ss_SymDpps_d][img_sym]
+                            file_path, fig = pp_d.gen_prediction_chart(save_plot=False, show_plot=True)
+                            st.pyplot(fig)
+                        except Exception as e:
+                            st.image(d_img_file, use_column_width='auto')
+                            st.warning(f"Error displaying interactive chart: {e}")
+                    else:
+                        st.image(d_img_file, use_column_width='auto')
                 except Exception as e:
                     logger.error(f"Error displaying chart [{d_img_file}]:\n{e}")
                 # Create expander for prediction analysis of daily chart
@@ -1174,7 +1193,7 @@ def analyze_symbols(st, prog_bar, df_symbols, added_syms=None, force_training=Fa
     print(f"Deleted {del_1min_charts} 1Min Chart images")
 
 
-def load_pp_objects(st):
+def load_pp_objects__(st):
     sym_dpps_d_ = {}
     sym_dpps_w_ = {}
 
@@ -1236,6 +1255,44 @@ def load_pp_objects(st):
 
     return sym_dpps_d_, sym_dpps_w_
 
+def load_pp_objects(st):
+
+    logger.debug("Loading PricePredict objects..,")
+
+    sym_dpps_d_ = {}
+    sym_dpps_w_ = {}
+
+    min_dil_size = 70000
+    ppo_dir = './ppo/'
+
+    # Read dill object files from the ./ppo directory
+    # with format <symbol>_<period>_<date>.dill
+    # Store unpickled objects with a period of "W" info sym_dpps_w_ indexed by symbol.
+    # Store unpickled objects with a period of "D" info sym_dpps_d_ indexed by symbol.
+    with os.scandir(ppo_dir) as entries:
+        for entry in entries:
+            if entry.is_file():
+                sym = entry.name.split('_')[0]
+                period = entry.name.split('_')[1]
+                if period == 'W':
+                    try:
+                        with open(entry, "rb") as f:
+                            sym_dpps_w_[sym] = dill.load(f)
+                    except Exception as e:
+                        logger.warning(f"Error loading PricePredict object [{sym}]: {e}")
+                elif period == 'D':
+                    try:
+                        with open(entry, "rb") as f:
+                            sym_dpps_d_[sym] = dill.load(f)
+                    except Exception as e:
+                        logger.warning(f"Error loading PricePredict object [{sym}]: {e}")
+
+    st.session_state[ss_SymDpps_d] = sym_dpps_d_
+    st.session_state[ss_SymDpps_w] = sym_dpps_w_
+
+    sync_dpps_objects(st, None)
+
+    return sym_dpps_d_, sym_dpps_w_
 
 def sync_dpps_objects(st, prog_bar):
     logger.info("Remove PricePredict objects that are not in the DataFrame")
@@ -1306,7 +1363,7 @@ def sync_dpps_objects(st, prog_bar):
             st.session_state[ss_SymDpps_w][sym] = pp
 
 
-def store_pp_objects(st, prog_bar):
+def store_pp_objects__(st, prog_bar):
 
     sync_dpps_objects(st, prog_bar)
     logger.info("Saving PricePredict objects (Daily Object)...")
@@ -1341,6 +1398,50 @@ def store_pp_objects(st, prog_bar):
         logger.error(f"Error saving  {dill_sym_dpps_w} - len[{len(sym_dpps_w_)}]: {e}")
         st.session_state['exp_sym'].error(f"Error saving Weekly PricePredict objects: {e}")
 
+
+def store_pp_objects(st, prog_bar):
+
+    sync_dpps_objects(st, prog_bar)
+
+    logger.info("Saving PricePredict objects (Weekly Object)...")
+
+    failed_ppws = []
+    for sym_w in st.session_state[ss_SymDpps_w]:
+        ppw = st.session_state[ss_SymDpps_w][sym_w]
+        if ppw is not None:
+            ticker = ppw.ticker
+            last_date = ppw.date_data.iloc[-1].strftime("%Y-%m-%d")
+            period = ppw.period
+            obj_file_name = f"{ticker}_{period}_{last_date}.dill"
+            file_path = './ppo/' + obj_file_name
+            try:
+                with open(file_path, "wb") as f:
+                    dill.dump(ppw, f)
+            except Exception as e:
+                logger.error(f"Error saving PricePredict object [{sym_w}]: {e}")
+                failed_ppws.append(sym_w)
+    if len(failed_ppws) > 0:
+        st.warning(f"Failed to save PricePredict objects: {failed_ppws}")
+
+    logger.info("Saving PricePredict objects (Daily Object)...")
+
+    failed_ppws = []
+    for sym_d in st.session_state[ss_SymDpps_d]:
+        ppd = st.session_state[ss_SymDpps_d][sym_d]
+        if ppd is not None:
+            ticker = ppd.ticker
+            last_date = ppd.date_data.iloc[-1].strftime("%Y-%m-%d")
+            period = ppd.period
+            obj_file_name = f"{ticker}_{period}_{last_date}.dill"
+            file_path = './ppo/' + obj_file_name
+            try:
+                with open(file_path, "wb") as f:
+                    dill.dump(ppd, f)
+            except Exception as e:
+                logger.error(f"Error saving PricePredict object [{sym_d}]: {e}")
+                failed_ppws.append(sym_d)
+    if len(failed_ppws) > 0:
+        st.warning(f"Failed to save PricePredict objects: {failed_ppws}")
 
 def task_pull_data(symbol_, dpp):
     # Get datetime 24 hours ago
@@ -1550,6 +1651,8 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
 
 
 def sym_correlations(prd, st, sym_dpps, prog_bar):
+
+    logger.debug(f"Calculating Period [{prd}] Correlations...")
 
     # Minimum number of data points required for correlation calculations
     min_data_points = 50

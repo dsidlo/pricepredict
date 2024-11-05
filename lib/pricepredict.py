@@ -1602,21 +1602,21 @@ class PricePredict():
         save_dict = dict(fname=file_path, dpi=300, pad_inches=0.25)
 
         df_plt_test_usd.ffill(inplace=True)
+        fig = None
         if show_plot or save_plot:
             try:
                 if save_plot:
-                    fig, axis = mpf.plot(df_plt_test_usd[-min_len:], **kwargs,
-                                         style='binance', addplot=preds,
-                                         savefig=save_dict, returnfig=True)
+                    fig, ax = mpf.plot(df_plt_test_usd[-min_len:], **kwargs,
+                                   style='binance', addplot=preds, savefig=save_dict, returnfig=True)
                 elif show_plot:
                     # For the interactive plot to show up, import mplfinance
                     # at the top of the script (or global level).
-                    mpf.plot(df_plt_test_usd[-min_len:], **kwargs,
-                             style='binance', addplot=preds)
+                    fig, ax = mpf.plot(df_plt_test_usd[-min_len:], **kwargs,
+                                   style='binance', addplot=preds, returnfig=True)
             except Exception as e:
                 self.logger.error(f"Error: Could not plot chart. {e}")
 
-        return file_path
+        return file_path, fig
 
     def save_prediction_data(self, file_path=None, last_candles=None):
         # Copy from the original data the OHLCV data for the prediction period...
