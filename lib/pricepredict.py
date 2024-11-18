@@ -53,8 +53,6 @@ from typing import Any, Dict, List, Optional, Union
 from groq import Groq
 from bayes_opt import BayesianOptimization
 
-from sympy.physics.quantum.shor import period_find
-
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
@@ -266,12 +264,10 @@ class PricePredict():
         self.target_low = None            # The target low
         self.pred = None                  # The predictions (4 columns)
         self.pred_rescaled = None         # The  predictions rescaled (4 columns)
-        self.pred_class = None            # The adjusted prediction class
         self.pred_close = None            # The adjusted prediction close
         self.pred_high = None             # The adjusted prediction close
         self.pred_low = None              # The adjusted prediction close
         self.adj_pred = None              # The adjusted predictions (3 columns)
-        self.adj_pred_class = None        # The adjusted prediction class
         self.adj_pred_close = None        # The adjusted prediction close
         self.adj_pred_high = None         # The adjusted prediction high
         self.adj_pred_low = None          # The adjusted prediction low
@@ -876,9 +872,11 @@ class PricePredict():
         str_datesData = []
         if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
             for item in self.date_data:
+                # Daily and Weekly data does not have hours and minutes.
                 str_datesData.append(item.strftime('%Y-%m-%d'))
         else:
             for item in self.date_data:
+                # Hours and minutes data includes date and time.
                 str_datesData.append(item.strftime('%Y-%m-%d %H:%M:%S'))
         str_datesData = pd.Series(str_datesData)
 
@@ -928,8 +926,10 @@ class PricePredict():
             self.targets = tc.get_item('target_cnt')
             str_datesData = pd.Series(json.loads(tc.get_item('dates_data')))
             if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
+                # Daily and Weekly data does not have hours and minutes.
                 self.date_data = pd.to_datetime(str_datesData, format='%Y-%m-%d')
             else:
+                # Hours and minutes data includes date and time.
                 self.date_data = pd.to_datetime(str_datesData, format='%Y-%m-%d %H:%M:%S')
             self.X = np.array(tc.get_item('X'))
             self.y = np.array(tc.get_item('y'))
@@ -966,8 +966,10 @@ class PricePredict():
             self.targets = pc.get_item('target_cnt')
             str_datesData = pd.Series(json.loads(pc.get_item('dates_data')))
             if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
+                # Daily and Weekly data does not have hours and minutes.
                 self.date_data = pd.to_datetime(str_datesData, format='%Y-%m-%d')
             else:
+                # Hours and minutes data includes date and time.
                 self.date_data = pd.to_datetime(str_datesData, format='%Y-%m-%d %H:%M:%S')
             self.X = np.array(pc.get_item('X'))
             self.y = np.array(pc.get_item('y'))
@@ -1569,7 +1571,8 @@ class PricePredict():
 
         title = (f'Ticker: {ticker} -- Period[ {self.period}] -- {self.dateStart_pred} to {last_date}\n'
                  f'Predictions High: {self.adj_pred_high[-1].round(2)}  Close: {self.adj_pred_close[-1].round(2)}  Low: {self.adj_pred_low[-1].round(2)}')
-        kwargs = dict(type='candle', volume=True, figratio=(11, 6), figscale=2, warn_too_much_data=10000, title=title)
+        kwargs = dict(type='candle', volume=True, figratio=(11, 6), figscale=2, warn_too_much_data=10000,
+                      scale_padding=1, title=title)
 
         if hasattr(df_plt_test_usd.index[0], 'day') is False:
             df_plt_test_usd.set_index('Date', inplace=True, drop=True)

@@ -805,29 +805,29 @@ class Test_PricePredict(TestCase):
         ticker = "TSLA"
         pp.period = PricePredict.Period1min
         days_to_load = int(3000 / PricePredict.PeriodMultiplier[pp.period])
-        # Set the start date to 7 days ag
-        dt_start_date = datetime.strptime('2024-10-20', "%Y-%m-%d")
-        start_date = (dt_start_date - timedelta(days=days_to_load)).strftime("%Y-%m-%d")
+        # Set the start date to 7 days ago, formatted as a string
+        start_date = (datetime.today() - timedelta(days=7)).strftime("%Y-%m-%d")
         # Set the end date to today
-        end_date = dt_start_date.strftime("%Y-%m-%d")
+        end_date = datetime.today().strftime("%Y-%m-%d")
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
         self.assertGreaterEqual(len(data), 1000, "data: Wrong length")
 
         # Augment the data with additional indicators/features
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
         self.assertEqual(features, 19, "features: Wrong count")
-        self.assertEqual(1950, len(dates_data), "dates_data: Wrong length")
-        self.assertEqual(1951, len(aug_data), "aug_data: Wrong length")
+        date_data_len = len(dates_data)
+        self.assertGreater(date_data_len, 1800, "dates_data: Wrong length")
+        self.assertEqual(date_data_len + 1, len(aug_data), "aug_data: Wrong length")
 
         # Scale the augmented data
         scaled_data, scaler = pp.scale_data(aug_data)
-        self.assertEqual(1951, len(scaled_data), "scaled_data: Wrong length")
+        self.assertEqual(date_data_len + 1, len(scaled_data), "scaled_data: Wrong length")
         self.assertIsNotNone(scaler, "scaler: is None")
 
         # Prepare the scaled data for model inputs
         X, y = pp.prep_model_inputs(scaled_data, features)
-        self.assertEqual(1951 - pp.back_candles, len(X), "X: Wrong length")
-        self.assertEqual(1951 - pp.back_candles, len(y), "y: Wrong length")
+        self.assertEqual(date_data_len + 1 - pp.back_candles, len(X), "X: Wrong length")
+        self.assertEqual(date_data_len + 1 - pp.back_candles, len(y), "y: Wrong length")
 
         # Use a small batch size and epochs to test the model training
         pp.epochs = 10
@@ -932,11 +932,11 @@ class Test_PricePredict(TestCase):
         # self.logger.info("Current Dir: ", os.getcwd())
 
         # Save the prediction data
-        file_path = pp.gen_prediction_chart(last_candles=40, save_plot=True)
+        file_path, fig = pp.gen_prediction_chart(last_candles=40, save_plot=True)
         self.assertTrue(os.path.isfile(file_path), f"gen_prediction_chart: File does not exist [{file_path}]")
         if os.path.isfile(file_path):
             os.remove(file_path)
-
+        self.assertEqual(type(fig).__name__, 'Figure', "gen_prediction_chart: Wrong type")
         # Delete the model file that we crated and loaded
         if os.path.isfile(model_path):
             os.remove(model_path)
