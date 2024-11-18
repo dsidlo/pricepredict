@@ -34,13 +34,14 @@ import hashlib
 import re
 import io
 import concurrent.futures as cf
+import matplotlib as mpl
+import streamlit.components.v1 as components
 
 from line_profiler import profile, LineProfiler
 from datetime import datetime, timedelta
 from pricepredict import PricePredict
 from io import StringIO
 from streamlit_js_eval import streamlit_js_eval
-
 
 # Change working directory to the ~/workspace/pricepredict directory
 os.chdir('/home/dsidlo/workspace/pricepredict')
@@ -81,16 +82,16 @@ ss_val_addNewSyms = 'val_addNewSyms'
 # Symbol under review
 img_sym = None
 # PP objects Daily
-sym_dpps_d = None
+sym_dpps = None
 sym_dpps_w = None
 # Directory for gui files
 gui_data = 'gui_data'
 # Save/Restore file for the all_df_symbols DataFrame
 guiAllSymbolsCsv = f'{gui_data}/gui_all_symbols.csv'
 # Pickle files for the PP objects
-dill_sym_dpps_d = f'{gui_data}/sym_dpps_d.dil'
+dill_sym_dpps_d = f'{gui_data}/sym_dpps.dil'
 dill_sym_dpps_w = f'{gui_data}/sym_dpps_w.dil'
-dillbk_sym_dpps_d = f'{gui_data}/sym_dpps_d.dil.bk'
+dillbk_sym_dpps_d = f'{gui_data}/sym_dpps.dil.bk'
 dillbk_sym_dpps_w = f'{gui_data}/sym_dpps_w.dil.bk'
 
 import_cols_simple = 2
@@ -117,14 +118,15 @@ def  main(message):
             # --------------------------------------------------------
             # Startup Initialization: Load the symbols from the file
             # --------------------------------------------------------
-            # Load the symbols from the file
-            logger.debug(f"Loading all_df_symbols from {guiAllSymbolsCsv} from file {guiAllSymbolsCsv}")
-            st.session_state[ss_AllDfSym] = pd.read_csv(guiAllSymbolsCsv, header='infer')
-            # Clear the Group field if it contains 'Imported' or 'Added'
-            st.session_state[ss_AllDfSym]['Groups'] = st.session_state[ss_AllDfSym]['Groups'].replace(['Imported', 'Added'], '')
-            # Load pp daily objects
-            logger.debug(f"Loading sym_dpps_d/w from {dill_sym_dpps_d} and {dillbk_sym_dpps_w}")
-            st.session_state[ss_SymDpps_d], st.session_state[ss_SymDpps_w] = load_pp_objects(st)
+            with st.spinner("Loading Symbols and PricePredict Objects..."):
+                # Load the symbols from the file
+                logger.debug(f"Loading all_df_symbols from {guiAllSymbolsCsv} from file {guiAllSymbolsCsv}")
+                st.session_state[ss_AllDfSym] = pd.read_csv(guiAllSymbolsCsv, header='infer')
+                # Clear the Group field if it contains 'Imported' or 'Added'
+                st.session_state[ss_AllDfSym]['Groups'] = st.session_state[ss_AllDfSym]['Groups'].replace(['Imported', 'Added'], '')
+                # Load pp daily objects
+                logger.debug(f"Loading sym_dpps/w from {dill_sym_dpps_d} and {dillbk_sym_dpps_w}")
+                st.session_state[ss_SymDpps_d], st.session_state[ss_SymDpps_w] = load_pp_objects(st)
 
         if ss_DfSym not in st.session_state:
             # Save the DataFrame to the session state
@@ -377,7 +379,7 @@ def  main(message):
                 # Remove the selected symbol from the all_df_symbols DataFrame
                 all_df_symbols = st.session_state[ss_AllDfSym]
                 all_df_symbols = all_df_symbols[all_df_symbols['Symbol'] != sym]
-                # Remove the selected symbol from the sym_dpps_w and sym_dpps_d dictionaries
+                # Remove the selected symbol from the sym_dpps_w and sym_dpps dictionaries
                 if sym in st.session_state[ss_SymDpps_w]:
                     del st.session_state[ss_SymDpps_w][sym]
                 if sym in st.session_state[ss_SymDpps_d]:
@@ -615,7 +617,7 @@ def remove_imported_symbols():
     imp_rows = st.session_state[ss_DfSym].index[st.session_state[ss_DfSym].Groups == 'Imported'].tolist()
     # Remove the imported symbols from the DataFrame
     st.session_state[ss_DfSym] = st.session_state[ss_DfSym].drop(imp_rows)
-    # Remove the selected symbol from the sym_dpps_w and sym_dpps_d dictionaries
+    # Remove the selected symbol from the sym_dpps_w and sym_dpps dictionaries
     if sym in st.session_state[ss_SymDpps_w]:
         del st.session_state[ss_SymDpps_w][sym]
     if sym in st.session_state[ss_SymDpps_d]:
@@ -777,7 +779,7 @@ def add_new_symbols(st, exp_sym, syms):
                         added_syms=added_symbols)
 
     st.info("Please Refresh Page After Adding Symbols.")
-    st.experimental_refresh()
+    streamlit_js_eval(js_expressions="parent.window.location.reload()")
 
 
 def display_symbol_charts(interactive_charts=True):
@@ -840,12 +842,13 @@ def display_symbol_charts(interactive_charts=True):
                         try:
                             pp_w = st.session_state[ss_SymDpps_w][img_sym]
                             file_path, fig = pp_w.gen_prediction_chart(save_plot=False, show_plot=True)
-                            st.pyplot(fig)
+                            # st.plotly_chart(fig, use_container_width=True, width=800, html_width=800)
+                            st.pyplot(fig, use_container_width=True)
                         except Exception as e:
-                            st.image(w_img_file, use_column_width='auto')
+                            st.image(w_img_file, use_container_width=True)
                             st.warning(f"Error displaying interactive chart: {e}")
                     else:
-                        st.image(w_img_file, use_column_width='auto')
+                        st.image(w_img_file, use_container_width=True)
                 except Exception as e:
                     logger.error(f"Error displaying chart [{w_img_file}]:\n{e}")
                 # Create expander for prediction analysis of weekly chart
@@ -897,12 +900,13 @@ def display_symbol_charts(interactive_charts=True):
                         try:
                             pp_d = st.session_state[ss_SymDpps_d][img_sym]
                             file_path, fig = pp_d.gen_prediction_chart(save_plot=False, show_plot=True)
-                            st.pyplot(fig)
+                            # st.pyplot(fig, use_container_width='auto')
+                            st.pyplot(fig, use_container_width=True)
                         except Exception as e:
-                            st.image(d_img_file, use_column_width='auto')
+                            st.image(d_img_file, use_container_width=True)
                             st.warning(f"Error displaying interactive chart: {e}")
                     else:
-                        st.image(d_img_file, use_column_width='auto')
+                        st.image(d_img_file, use_container_width=True)
                 except Exception as e:
                     logger.error(f"Error displaying chart [{d_img_file}]:\n{e}")
                 # Create expander for prediction analysis of daily chart
@@ -1163,34 +1167,47 @@ def analyze_symbols(st, prog_bar, df_symbols, added_syms=None, force_training=Fa
     logger.debug(f"6> Saving all_df_symbols to {guiAllSymbolsCsv}")
     all_df_symbols = st.session_state[ss_AllDfSym]
     df_symbols = st.session_state[ss_DfSym]
-    merge_and_save(all_df_symbols, df_symbols)
+    with st.spinner("Saving PricePredict Objects..."):
+        merge_and_save(all_df_symbols, df_symbols)
 
     # Save out the updated DataFrames and PricePredict objects
     store_pp_objects(st, prog_bar)
     logger.info("--- Analyzing Symbols: Completed ---")
 
-    # Remove old PricePredict objects
-    del_d_models = model_cleanup(PricePredict.PeriodDaily, st.session_state[ss_AllDfSym])
-    del_w_models = model_cleanup(PricePredict.PeriodWeekly, st.session_state[ss_AllDfSym])
-    del_1h_models = model_cleanup(PricePredict.Period1hour, st.session_state[ss_AllDfSym])
-    del_5min_models = model_cleanup(PricePredict.Period5min, st.session_state[ss_AllDfSym])
-    del_1min_models = model_cleanup(PricePredict.Period1min, st.session_state[ss_AllDfSym])
-    print(f"Deleted {del_d_models} Daily PricePredict objects")
-    print(f"Deleted {del_w_models} Weekly PricePredict objects")
-    print(f"Deleted {del_1h_models} 1Hour PricePredict objects")
-    print(f"Deleted {del_5min_models} 5Min PricePredict objects")
-    print(f"Deleted {del_1min_models} 1Min PricePredict objects")
+    with st.spinner("Cleaning up..."):
+        # Remove old PricePredict objects
+        del_d_models = model_cleanup(PricePredict.PeriodDaily, st.session_state[ss_AllDfSym])
+        del_w_models = model_cleanup(PricePredict.PeriodWeekly, st.session_state[ss_AllDfSym])
+        del_1h_models = model_cleanup(PricePredict.Period1hour, st.session_state[ss_AllDfSym])
+        del_5min_models = model_cleanup(PricePredict.Period5min, st.session_state[ss_AllDfSym])
+        del_1min_models = model_cleanup(PricePredict.Period1min, st.session_state[ss_AllDfSym])
+        print(f"Deleted {del_d_models} Daily PricePredict objects")
+        print(f"Deleted {del_w_models} Weekly PricePredict objects")
+        print(f"Deleted {del_1h_models} 1Hour PricePredict objects")
+        print(f"Deleted {del_5min_models} 5Min PricePredict objects")
+        print(f"Deleted {del_1min_models} 1Min PricePredict objects")
 
-    del_d_charts = charts_cleanup(st, PricePredict.PeriodDaily)
-    del_w_charts = charts_cleanup(st, PricePredict.PeriodWeekly)
-    del_1h_charts = charts_cleanup(st, PricePredict.Period1hour)
-    del_5min_charts = charts_cleanup(st, PricePredict.Period5min)
-    del_1min_charts = charts_cleanup(st, PricePredict.Period1min)
-    print(f"Deleted {del_d_charts} Daily Chart images")
-    print(f"Deleted {del_w_charts} Weekly Chart images")
-    print(f"Deleted {del_1h_charts} 1Hour Chart images")
-    print(f"Deleted {del_5min_charts} 5Min Chart images")
-    print(f"Deleted {del_1min_charts} 1Min Chart images")
+        del_d_ppo = ppo_cleanup(PricePredict.PeriodDaily, st.session_state[ss_AllDfSym])
+        del_w_ppo = ppo_cleanup(PricePredict.PeriodWeekly, st.session_state[ss_AllDfSym])
+        del_1h_ppo = ppo_cleanup(PricePredict.Period1hour, st.session_state[ss_AllDfSym])
+        del_5min_ppo = ppo_cleanup(PricePredict.Period5min, st.session_state[ss_AllDfSym])
+        del_1min_ppo = ppo_cleanup(PricePredict.Period1min, st.session_state[ss_AllDfSym])
+        print(f"Deleted {del_d_ppo} Daily PricePredict objects")
+        print(f"Deleted {del_w_ppo} Weekly PricePredict objects")
+        print(f"Deleted {del_1h_ppo} 1Hour PricePredict objects")
+        print(f"Deleted {del_5min_ppo} 5Min PricePredict objects")
+        print(f"Deleted {del_1min_ppo} 1Min PricePredict objects")
+
+        del_d_charts = charts_cleanup(st, PricePredict.PeriodDaily)
+        del_w_charts = charts_cleanup(st, PricePredict.PeriodWeekly)
+        del_1h_charts = charts_cleanup(st, PricePredict.Period1hour)
+        del_5min_charts = charts_cleanup(st, PricePredict.Period5min)
+        del_1min_charts = charts_cleanup(st, PricePredict.Period1min)
+        print(f"Deleted {del_d_charts} Daily Chart images")
+        print(f"Deleted {del_w_charts} Weekly Chart images")
+        print(f"Deleted {del_1h_charts} 1Hour Chart images")
+        print(f"Deleted {del_5min_charts} 5Min Chart images")
+        print(f"Deleted {del_1min_charts} 1Min Chart images")
 
 
 def load_pp_objects__(st):
@@ -1265,27 +1282,40 @@ def load_pp_objects(st):
     min_dil_size = 70000
     ppo_dir = './ppo/'
 
-    # Read dill object files from the ./ppo directory
-    # with format <symbol>_<period>_<date>.dill
-    # Store unpickled objects with a period of "W" info sym_dpps_w_ indexed by symbol.
-    # Store unpickled objects with a period of "D" info sym_dpps_d_ indexed by symbol.
+    # Find the latest .dill files in the ./ppo directory for any given symbol.
+    dill_files = {}
     with os.scandir(ppo_dir) as entries:
         for entry in entries:
-            if entry.is_file():
-                sym = entry.name.split('_')[0]
-                period = entry.name.split('_')[1]
-                if period == 'W':
-                    try:
-                        with open(entry, "rb") as f:
-                            sym_dpps_w_[sym] = dill.load(f)
-                    except Exception as e:
-                        logger.warning(f"Error loading PricePredict object [{sym}]: {e}")
-                elif period == 'D':
-                    try:
-                        with open(entry, "rb") as f:
-                            sym_dpps_d_[sym] = dill.load(f)
-                    except Exception as e:
-                        logger.warning(f"Error loading PricePredict object [{sym}]: {e}")
+            if entry.is_file() and entry.name.endswith('.dill'):
+                sym, period = entry.name.split('_')[:2]
+                sym_period = sym + '_' + period
+                # Find a key in dill_files that starts with sym and place the entry
+                # the variable curr_entry.
+                curr_entry = next((v for k, v in dill_files.items() if k.startswith(sym_period)), None)
+                if curr_entry is not None:
+                    if entry.name > curr_entry.name:
+                        # Replace the entry with the newer file
+                        dill_files[sym_period] = entry
+                else:
+                    dill_files[sym_period] = entry
+
+    for sym_period in dill_files.keys():
+        entry = dill_files[sym_period]
+        if entry.is_file():
+            sym = entry.name.split('_')[0]
+            period = entry.name.split('_')[1]
+            if period == 'W':
+                try:
+                    with open(entry, "rb") as f:
+                        sym_dpps_w_[sym] = dill.load(f)
+                except Exception as e:
+                    logger.warning(f"Error loading PricePredict object [{sym}]: {e}")
+            elif period == 'D':
+                try:
+                    with open(entry, "rb") as f:
+                        sym_dpps_d_[sym] = dill.load(f)
+                except Exception as e:
+                    logger.warning(f"Error loading PricePredict object [{sym}]: {e}")
 
     st.session_state[ss_SymDpps_d] = sym_dpps_d_
     st.session_state[ss_SymDpps_w] = sym_dpps_w_
@@ -1410,6 +1440,8 @@ def store_pp_objects(st, prog_bar):
         ppw = st.session_state[ss_SymDpps_w][sym_w]
         if ppw is not None:
             ticker = ppw.ticker
+            if ppw.date_data is None:
+                continue
             last_date = ppw.date_data.iloc[-1].strftime("%Y-%m-%d")
             period = ppw.period
             obj_file_name = f"{ticker}_{period}_{last_date}.dill"
@@ -1430,6 +1462,8 @@ def store_pp_objects(st, prog_bar):
         ppd = st.session_state[ss_SymDpps_d][sym_d]
         if ppd is not None:
             ticker = ppd.ticker
+            if ppd.date_data is None:
+                continue
             last_date = ppd.date_data.iloc[-1].strftime("%Y-%m-%d")
             period = ppd.period
             obj_file_name = f"{ticker}_{period}_{last_date}.dill"
@@ -1491,7 +1525,7 @@ def task_train_predict_report(symbol_, dpp, added_syms=None, force_training=Fals
         added_syms = []
     if dpp.ticker in added_syms:
         force_training = True
-    if force_training:
+    if force_training or dpp.last_analysis is None:
         logger.info(f"Training and predicting for {symbol_}...")
         dpp.cached_train_predict_report()
         logger.info(f"Completed training and predicting for {symbol_}...")
@@ -1693,7 +1727,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
                     if source_sym.orig_data is not None:
                         len_ = len(source_sym.orig_data)
                     logger.info(
-                        f"Symbol [{source_sym.ticker}] [{len_}] has less than {min_data_points} data points. Wont calculate correlations.")
+                        f"1: Symbol source:[{ssym}] [{len_}] has less than {min_data_points} data points. Wont calculate correlations.")
                     continue
 
                 corr = target_sym.periodic_correlation(source_sym)
@@ -1736,7 +1770,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
             if target_sym.orig_data is not None:
                 len_ = len(target_sym.orig_data)
             logger.info(
-                f"Symbol [{target_sym.ticker}] [{len_}] has less than {min_data_points} data points. Wont calculate correlations.")
+                f"2: Symbol target:[{target_sym.ticker}] [{len_}] has less than {min_data_points} data points. Wont calculate correlations.")
             continue
 
         top10corr = []
@@ -1770,7 +1804,7 @@ def model_cleanup(period, symbols):
         sym = sym.replace("=", "~")
         # Find all the files that match the symbol.
         syms_files = []
-        for root, dirs, files in os.walk("models"):
+        for root, dirs, files in os.walk("./models"):
             for file in files:
                 if file.startswith(sym) and period in file and file.endswith(".keras"):
                     syms_files.append(file)
@@ -1778,8 +1812,38 @@ def model_cleanup(period, symbols):
         syms_files = sorted(syms_files, reverse=True)
         # Remove all but the first file...
         for file in syms_files[1:]:
-            os.remove(f"models/{file}")
+            os.remove(f"./models/{file}")
             del_model_cnt += 1
+
+    return del_model_cnt
+
+
+def ppo_cleanup(period, symbols):
+    """ Delete all but the latest model files for the given period and symbols """
+    syms_files = []
+    for root, dirs, files in os.walk("./ppo"):
+        for file in files:
+            if file.endswith(".dill"):
+                syms_files.append(file)
+    syms_files = sorted(syms_files, reverse=True)
+    del_model_cnt = 0
+    for sym in symbols['Symbol']:
+        sym = sym.replace("=", "~")
+        sfiles = []
+        for sf in syms_files:
+            if sf.startswith(sym) and period in sf:
+                if '_' + period + '_' in sf:
+                    if sf not in sfiles:
+                        sfiles.append(sf)
+        # Find all the files that match the symbol.
+        # Sort the file by file name in reverse order...
+        sfiles = sorted(sfiles, reverse=True)
+        # Remove all but the first file...
+        for file in sfiles[1:]:
+            fp = f"./ppo/{file}"
+            if os.path.isfile(fp):
+                os.remove(fp)
+                del_model_cnt += 1
 
     return del_model_cnt
 
@@ -1979,6 +2043,51 @@ def optimize_hparams(st, prog_bar):
         st.info(f"All [{opt_cnt}] optimization tasks completed.")
 
     print("All optimization tasks completed.")
+
+
+def review_pp_objects(st, period):
+    if period == PricePredict.PeriodDaily:
+        sym_dpps = st.session_state[ss_SymDpps_d]
+    elif period == PricePredict.PeriodWeekly:
+        sym_dpps = st.session_state[ss_SymDpps_w]
+    else:
+        logger.error(f"Error: Invalid period: {period}")
+        return
+
+    for sym in sym_dpps:
+        ppo = sym_dpps[sym]
+        # Get first file in './ppo/save' directory that starts with the symbol in sym.
+        files = os.listdir('./ppo/save')
+        ppo_save_file = None
+        for file in files:
+            if file.startswith(sym):
+                ppo_save_file = file
+                break
+        if ppo_save_file is not None:
+            # Unpickle the PricePredict object
+            ppo_save = None
+            with open(f'./ppo/save/{ppo_save_file}', 'rb') as f:
+                try:
+                    ppo_save = dill.load(f)
+                except Exception as e:
+                    logger.error(f"Error loading PricePredict object: {e}")
+            if ppo_save is not None:
+                # Compare cached_train_data and cached_predict_data properties
+                # between ppo and ppo_saved objects after converting them into JSON strings.
+                ppo_json = json.dumps(ppo.cached_train_data)
+                ppo_save_json = json.dumps(ppo_save.cached_train_data)
+                if ppo_json != ppo_save_json:
+                    logger.error(f"Error: {sym} {period} cached_train_data objects do not match.")
+                    logger.error(f"ppo: {ppo_json}")
+                    logger.error(f"ppo_save: {ppo_save_json}")
+                ppo_json = json.dumps(ppo.cached_pred_data)
+                ppo_save_json = json.dumps(ppo_save.cached_pred_data)
+                if ppo_json != ppo_save_json:
+                    logger.error(f"Error: {sym} {period} cached_pred_data objects do not match.")
+                    logger.error(f"ppo: {ppo_json}")
+                    logger.error(f"ppo_save: {ppo_save_json}")
+        else:
+            logger.error(f"Error: {sym} {period} PricePredict object not found.")
 
 
 if __name__ == "__main__":
