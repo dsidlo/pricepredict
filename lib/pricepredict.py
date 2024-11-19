@@ -374,7 +374,8 @@ class PricePredict():
         self.ticker_data = None
         # Check yahoo if symbol is valid...
         try:
-            ticker_ = yf.Ticker(chk_ticker).history(period='5d', interval='1d')
+            # period='5d' can fail for some tickers such as SRCL
+            ticker_ = yf.Ticker(chk_ticker).history(period='1mo', interval='1d')
             if len(ticker_) > 0:
                 self.ticker = ticker
                 ticker_data = yf.Ticker(chk_ticker).info

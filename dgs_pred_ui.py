@@ -18,7 +18,6 @@ Note: All local variable are initialized in on .reset('app') method.
       Keep all required variables in the session_state object.
 """
 
-import line_profiler
 import os
 import sys
 import json
@@ -34,10 +33,10 @@ import hashlib
 import re
 import io
 import concurrent.futures as cf
-import matplotlib as mpl
-import streamlit.components.v1 as components
 
+import line_profiler
 from line_profiler import profile, LineProfiler
+
 from datetime import datetime, timedelta
 from pricepredict import PricePredict
 from io import StringIO
@@ -118,7 +117,7 @@ def  main(message):
             # --------------------------------------------------------
             # Startup Initialization: Load the symbols from the file
             # --------------------------------------------------------
-            with st.spinner("Loading Symbols and PricePredict Objects..."):
+            with st.spinner("# Loading Symbols and PricePredict Objects..."):
                 # Load the symbols from the file
                 logger.debug(f"Loading all_df_symbols from {guiAllSymbolsCsv} from file {guiAllSymbolsCsv}")
                 st.session_state[ss_AllDfSym] = pd.read_csv(guiAllSymbolsCsv, header='infer')
@@ -849,6 +848,11 @@ def display_symbol_charts(interactive_charts=True):
                             st.warning(f"Error displaying interactive chart: {e}")
                     else:
                         st.image(w_img_file, use_container_width=True)
+                    st.button("Interactive Chart", key="b_interactive_chart")
+                    if st.session_state.b_interactive_chart:
+                        pp_w = st.session_state[ss_SymDpps_w][img_sym]
+                        file_path, fig = pp_w.gen_prediction_chart(save_plot=False, show_plot=True)
+                        fig.show()
                 except Exception as e:
                     logger.error(f"Error displaying chart [{w_img_file}]:\n{e}")
                 # Create expander for prediction analysis of weekly chart
@@ -926,9 +930,11 @@ def display_symbol_charts(interactive_charts=True):
             st.markdown(f"=====   =====   =====   =====   ====   ====   ====    ====   ====   =====   =====   =====   =====   =====   =====   =====   =====")
 
             expd_senti = st.expander("Sentiment...", expanded=False)
-            expd_senti.button("Sentiment Analysis", key='sb_Sentiment')
+            sent_col1, sent_col2 = expd_senti.columns(2)
+            sent_col1.button("Sentiment Analysis", key='sb_Sentiment')
+            sent_col2.checkbox("Force Refresh", key='cb_ForceSentiment')
             if 'sb_Sentiment' in st.session_state and st.session_state.sb_Sentiment:
-                if hasattr(pp, 'sentiment_text') is False or pp.sentiment_text == '':
+                if hasattr(pp, 'sentiment_text') is False or pp.sentiment_text == '' or st.session_state.cb_ForceSentiment:
                     pp.groq_sentiment()
                 expd_senti.markdown(pp.sentiment_text + '\n\n' +
                                     '```json\n' + json.dumps(pp.sentiment_json, indent=3) + '\n```')
