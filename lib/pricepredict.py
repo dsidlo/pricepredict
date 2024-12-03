@@ -373,18 +373,26 @@ class PricePredict():
         self.ticker = None
         self.ticker_data = None
         # Check yahoo if symbol is valid...
-        try:
-            # period='5d' can fail for some tickers such as SRCL
-            ticker_ = yf.Ticker(chk_ticker).history(period='1mo', interval='1d')
-            if len(ticker_) > 0:
+        while True:
+            try:
+                # period='5d' can fail for some tickers such as SRCL
+                ticker_ = yf.Ticker(chk_ticker).history(period='1mo', interval='1d')
                 self.ticker = ticker
                 ticker_data = yf.Ticker(chk_ticker).info
                 self.ticker_data = ticker_data
-        except:
-            ticker_ = []
-        if len(ticker_) == 0:
-            ticker = None
-
+                break
+            except Exception as e:
+                self.logger.error(f"Error: in Ticker().history(): {ticker}\n{e}")
+                if 'Too Many Requests for url' in str(e):
+                    sleep_n = 3
+                    self.logger.warning(f"Too Many yfinance Requests. Sleeping for {sleep_n} second.")
+                    time.sleep(sleep_n)
+                    continue
+                else:
+                    self.logger.error(f"Ticker().history() or Ticker().info failed for Ticker [{chk_ticker}].")
+                    ticker_ = []
+                    ticker = None
+                    break
 
         return ticker_data
 

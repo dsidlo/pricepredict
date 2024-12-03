@@ -1288,9 +1288,12 @@ def load_pp_objects(st):
     min_dil_size = 70000
     ppo_dir = './ppo/'
 
+    prog_bar = st.progress(0, "Finding PricePredict objects...")
     # Find the latest .dill files in the ./ppo directory for any given symbol.
     dill_files = {}
     with os.scandir(ppo_dir) as entries:
+        tot_entries = len(list(os.scandir(ppo_dir)))
+        i = 0
         for entry in entries:
             if entry.is_file() and entry.name.endswith('.dill'):
                 sym, period = entry.name.split('_')[:2]
@@ -1304,7 +1307,12 @@ def load_pp_objects(st):
                         dill_files[sym_period] = entry
                 else:
                     dill_files[sym_period] = entry
+            i += 1
+            prog_bar.progress(int(i / tot_entries) * 100, f"Finding PricePredict objects: {entry.name} ({i}/{tot_entries})")
 
+    prog_bar.progress(0, "Loading PricePredict objects...")
+    tot_entries = len(dill_files.keys())
+    i = 0
     for sym_period in dill_files.keys():
         entry = dill_files[sym_period]
         if entry.is_file():
@@ -1322,11 +1330,14 @@ def load_pp_objects(st):
                         sym_dpps_d_[sym] = dill.load(f)
                 except Exception as e:
                     logger.warning(f"Error loading PricePredict object [{sym}]: {e}")
+            i += 1
+            prog_bar.progress(int(i / tot_entries) * 100, f"Loading PricePredict objects: {entry.name} ({i}/{tot_entries})")
 
     st.session_state[ss_SymDpps_d] = sym_dpps_d_
     st.session_state[ss_SymDpps_w] = sym_dpps_w_
 
-    sync_dpps_objects(st, None)
+    sync_dpps_objects(st, prog_bar)
+    prog_bar.empty()
 
     return sym_dpps_d_, sym_dpps_w_
 
