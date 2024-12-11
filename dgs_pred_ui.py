@@ -1424,6 +1424,7 @@ def sync_dpps_objects(st, prog_bar):
             prog_bar.progress(int(i / total_syms * 100), f"Validating Weekly Object: {sym} ({i}/{total_syms})")
 
     if len(object_removed) > 0:
+        logger.info(f'Deleted {len(object_removed)} Daily PricePredict objects: [{','.join(object_removed)}]')
         st.session_state['exp_sym'].warning(f"Removed UnPicklable PricePredict objects: {object_removed}")
 
     # Make sure that we have PricePredict objects for all the symbols in the DataFrame

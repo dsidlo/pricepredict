@@ -1067,7 +1067,11 @@ class PricePredict():
         - Save the Seasonality Decomposition to a file or database.
         """
         self.logger.info(f"Performing price prediction for [{self.ticker}] using cached data...")
-        self.gen_prediction_chart(last_candles=75, save_plot=save_plot, show_plot=show_plot)
+        try:
+            self.gen_prediction_chart(last_candles=75, save_plot=save_plot, show_plot=show_plot)
+        except Exception as e:
+            self.logger.error(f"Exception Error: Could not generate prediction chart: {e}")
+
         self.save_prediction_data()
 
         # Save current datetime of the last analysis.
