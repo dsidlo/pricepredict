@@ -85,8 +85,8 @@ class Test_PricePredict(TestCase):
         self.assertEqual("AAPL", pp.ticker_data.get('symbol'), f"ticker[{pp.ticker_data.get('symbol')}]: Ticker should be AAPL")
 
         ticker = "yy043xx"
-        ticker = pp.chk_yahoo_ticker(ticker)
-        self.assertEqual(None, ticker, f"ticker[{ticker_data}]: Ticker returned should be None")
+        ticker_data = pp.chk_yahoo_ticker(ticker)
+        self.assertEqual(None, ticker_data, f"ticker[{ticker_data}]: Ticker returned should be None")
 
     def test_fetch_data_yahoo(self):
         # Create an instance of the price prediction object

@@ -33,6 +33,7 @@ import hashlib
 import re
 import io
 import concurrent.futures as cf
+import objgraph
 
 import line_profiler
 from line_profiler import profile, LineProfiler
@@ -92,6 +93,11 @@ dill_sym_dpps_d = f'{gui_data}/sym_dpps.dil'
 dill_sym_dpps_w = f'{gui_data}/sym_dpps_w.dil'
 dillbk_sym_dpps_d = f'{gui_data}/sym_dpps.dil.bk'
 dillbk_sym_dpps_w = f'{gui_data}/sym_dpps_w.dil.bk'
+
+# Direcoty paths...
+model_dir = './models/'
+chart_dir = './charts/'
+preds_dir = './predictions/'
 
 import_cols_simple = 2
 import_cols_full = 10
@@ -754,12 +760,18 @@ def add_new_symbols(st, exp_sym, syms):
         # Create a datetime that is 5 days ago
         five_days_ago = datetime.now() - timedelta(days=5)
         # Create a Daily PricePredict object for the symbol
-        pp_d = PricePredict(ticker=sym, period=PricePredict.PeriodDaily)
+        pp_d = PricePredict(ticker=sym, period=PricePredict.PeriodDaily,
+                            model_dir=model_dir,
+                            chart_dir=chart_dir,
+                            preds_dir=preds_dir)
         pp_d.last_analysis = five_days_ago
         st.session_state[ss_SymDpps_d][sym] = pp_d
         # Create a Weekly PricePredict object for the symbol
         pp_w = PricePredict(ticker=sym,
-                            period=PricePredict.PeriodWeekly)
+                            period=PricePredict.PeriodWeekly,
+                            model_dir=model_dir,
+                            chart_dir=chart_dir,
+                            preds_dir=preds_dir)
         pp_w.last_analysis = five_days_ago
         st.session_state[ss_SymDpps_w][sym] = pp_w
 
@@ -1073,7 +1085,10 @@ def analyze_symbols(st, prog_bar, df_symbols, added_syms=None, force_training=Fa
             # Check if the model has a weekly PricePredict object
             if row.Symbol not in st.session_state[ss_SymDpps_w]:
                 # Create a weekly PricePredict object for the symbol
-                ppw = PricePredict(ticker=row.Symbol, period=PricePredict.PeriodWeekly)
+                ppw = PricePredict(ticker=row.Symbol, period=PricePredict.PeriodWeekly,
+                                   model_dir=model_dir,
+                                   chart_dir=chart_dir,
+                                   preds_dir=preds_dir)
                 st.session_state[ss_SymDpps_w][row.Symbol] = ppw
                 st.session_state[ss_SymDpps_w][row.Groups] = 'Added'
             else:
@@ -1106,7 +1121,10 @@ def analyze_symbols(st, prog_bar, df_symbols, added_syms=None, force_training=Fa
             # Check if the model has a daily PricePredict object
             if row.Symbol not in st.session_state[ss_SymDpps_d]:
                 # Create a daily PricePredict object for the symbol
-                ppd = PricePredict(ticker=row.Symbol, period=PricePredict.PeriodDaily)
+                ppd = PricePredict(ticker=row.Symbol, period=PricePredict.PeriodDaily,
+                                   model_dir=model_dir,
+                                   chart_dir=chart_dir,
+                                   preds_dir=preds_dir)
                 st.session_state[ss_SymDpps_d][row.Symbol] = ppd
             else:
                 ppd = st.session_state[ss_SymDpps_d][row.Symbol]
@@ -1266,10 +1284,16 @@ def load_pp_objects__(st):
 
     if sym_dpps_d_ is None:
         # Add a dummy PricePredict object so that other logic doesn't break
-        sym_dpps_d_['___'] = PricePredict(ticker='___', period=PricePredict.PeriodDaily)
+        sym_dpps_d_['___'] = PricePredict(ticker='___', period=PricePredict.PeriodDaily,
+                                          model_dir=model_dir,
+                                          chart_dir=chart_dir,
+                                          preds_dir=preds_dir)
     if sym_dpps_w_ is None:
         # Add a dummy PricePredict object so that other logic doesn't break
-        sym_dpps_w_['___'] = PricePredict(ticker='___', period=PricePredict.PeriodWeekly)
+        sym_dpps_w_['___'] = PricePredict(ticker='___', period=PricePredict.PeriodWeekly,
+                                          model_dir=model_dir,
+                                          chart_dir=chart_dir,
+                                          preds_dir=preds_dir)
 
     st.session_state[ss_SymDpps_d] = sym_dpps_d_
     st.session_state[ss_SymDpps_w] = sym_dpps_w_
@@ -1365,6 +1389,8 @@ def sync_dpps_objects(st, prog_bar):
                 dill.dump(dpp_d, buffer)
             except Exception as e:
                 logger.warning(f"WARN: pickling PricePredict dpp_d object [{sym}]: {e}")
+                dill.detect.badobjects(dpp_d, depth=2)
+                objgraph.show_refs(dpp_d, filename=f'objgraph_{dpp_d.ticker}_dpp_d.png')
                 # Remove the unpicklable object
                 del st.session_state[ss_SymDpps_d][sym]
                 object_removed.append(sym+':d')
@@ -1387,6 +1413,8 @@ def sync_dpps_objects(st, prog_bar):
                 dill.dump(dpp_w, buffer)
             except Exception as e:
                 logger.warning(f"WARN: pickling PricePredict dpp_w object [{sym}]: {e}")
+                dill.detect.badobjects(dpp_w, depth=2)
+                objgraph.show_refs(dpp_d, filename=f'objgraph_{dpp_d.ticker}_dpp_w.png')
                 # Remove the unpicklable object
                 del st.session_state[ss_SymDpps_w][sym]
                 object_removed.append(sym+':w')
@@ -1402,11 +1430,17 @@ def sync_dpps_objects(st, prog_bar):
     for sym in df_symbols.Symbol.values:
         if sym not in st.session_state[ss_SymDpps_d]:
             # Create missing PricePredict objects
-            pp = PricePredict(ticker=sym, period=PricePredict.PeriodDaily, logger=logger)
+            pp = PricePredict(ticker=sym, period=PricePredict.PeriodDaily, logger=logger,
+                              model_dir=model_dir,
+                              chart_dir=chart_dir,
+                              preds_dir=preds_dir)
             st.session_state[ss_SymDpps_d][sym] = pp
         if sym not in st.session_state[ss_SymDpps_w]:
             # Create missing PricePredict objects
-            pp = PricePredict(ticker=sym, period=PricePredict.PeriodWeekly, logger=logger)
+            pp = PricePredict(ticker=sym, period=PricePredict.PeriodWeekly, logger=logger,
+                              model_dir=model_dir,
+                              chart_dir=chart_dir,
+                              preds_dir=preds_dir)
             st.session_state[ss_SymDpps_w][sym] = pp
 
 
@@ -1518,8 +1552,12 @@ def task_pull_data(symbol_, dpp):
         return symbol_, dpp
 
     # Change the start date to 14 days before the end date...
-    start_date = (datetime.strptime(end_date, "%Y-%m-%d")
-                  - timedelta(days=160)).strftime("%Y-%m-%d")
+    if dpp.period == PricePredict.PeriodWeekly:
+        start_date = (datetime.strptime(end_date, "%Y-%m-%d")
+                      - timedelta(days=600)).strftime("%Y-%m-%d")
+    else:
+        start_date = (datetime.strptime(end_date, "%Y-%m-%d")
+                      - timedelta(days=365)).strftime("%Y-%m-%d")
     # Simply pulls and caches the prediction data...
     dpp.cache_prediction_data(symbol_, start_date, end_date, dpp.period)
     logger.info(f"Completed pulling data for {symbol_}...")
@@ -1544,6 +1582,7 @@ def task_train_predict_report(symbol_, dpp, added_syms=None, force_training=Fals
         force_training = True
     if force_training or dpp.last_analysis is None:
         logger.info(f"Training and predicting for {symbol_}...")
+        dd = dpp.cached_train_data.get_item('dates_data')
         dpp.cached_train_predict_report()
         logger.info(f"Completed training and predicting for {symbol_}...")
     else:
@@ -1597,7 +1636,10 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
             if sym in sym_dpps_d:
                 pp = sym_dpps_d[sym]
             else:
-                pp = PricePredict(ticker=sym, period=PricePredict.PeriodDaily, logger=logger)
+                pp = PricePredict(ticker=sym, period=PricePredict.PeriodDaily, logger=logger,
+                                  model_dir=model_dir,
+                                  chart_dir=chart_dir,
+                                  preds_dir=preds_dir)
                 sym_dpps_d[sym] = pp
 
             if pp.pred_strength is None:
@@ -1641,7 +1683,10 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
             if sym in sym_dpps_w:
                 pp = sym_dpps_w[sym]
             else:
-                pp = PricePredict(ticker=sym, period=PricePredict.PeriodWeekly, logger=logger)
+                pp = PricePredict(ticker=sym, period=PricePredict.PeriodWeekly, logger=logger,
+                                  model_dir=model_dir,
+                                  chart_dir=chart_dir,
+                                  preds_dir=preds_dir)
                 sym_dpps_w[sym] = pp
 
             if pp.pred_strength is None:
@@ -1913,9 +1958,9 @@ def charts_cleanup(st, period):
 
 def tst_prediction_analysis(in_ticker):
     # Create an instance of the price prediction object
-    pp = PricePredict(model_dir='./models/',
-                      chart_dir='./charts/',
-                      preds_dir='./predictions/')
+    pp = PricePredict(model_dir=model_dir,
+                      chart_dir=chart_dir,
+                      preds_dir=preds_dir)
 
     ticker = in_ticker
     test_ticker = "Test-" + ticker
@@ -1937,9 +1982,9 @@ def tst_bayes_opt(in_ticker, pp_obj=None, opt_csv=None,
                   cache_train=False, cache_predict=False, train_and_predict=False):
     if pp_obj is None:
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='./models/',
-                          chart_dir='./charts/',
-                          preds_dir='./predictions/')
+        pp = PricePredict(model_dir=model_dir,
+                          chart_dir=chart_dir,
+                          preds_dir=preds_dir)
     else:
         pp = pp_obj
 

@@ -302,6 +302,7 @@ class PricePredict():
         self.top10xcorr = None            # The top 10 cross correlations dict {'<Sym>': <xCorr%>}
         self.sentiment_json = {}          # The sentiment as json
         self.sentiment_text = ''          # The sentiment as text
+        self.yf_sleep = 30                # The sleep time for yfinance requests
 
         # Create a logger for this object.
         if logger is None:
@@ -372,27 +373,65 @@ class PricePredict():
         ticker_data = None
         self.ticker = None
         self.ticker_data = None
+        retry_needed = False
+        retry_success = False
+        retry_cnt = 0
+        sleep_n = self.yf_sleep
         # Check yahoo if symbol is valid...
         while True:
             try:
                 # period='5d' can fail for some tickers such as SRCL
+                try:
+                    ticker_data = yf.Ticker(chk_ticker).info
+                except Exception as e:
+                    if 'json' in str(e):
+                        self.logger.warn(f"Warn: 1 - Ticker().info JSON processing for Ticker [{chk_ticker}].")
+                    else:
+                        self.logger.warn(f"Warn: 2 - Ticker().info failed for Ticker [{chk_ticker}].\n{e}")
+                    retry_needed = True
+                    if retry_cnt < 2:
+                        self.logger.warn(f"Too Many yfinance Requests. Sleeping for {sleep_n} second.")
+                        self.logger.warn(f"WARN: Retrying after sleep({sleep_n})...")
+                        time.sleep(sleep_n)
+                        retry_cnt += 1
+                        continue
+                    self.logger.warn(f"Warn: 3 - Ticker().info failed for Ticker [{chk_ticker}].")
+                    break
+
+                if ticker_data is None or len(ticker_data) <= 1:
+                    ticker_data = None
+                    self.logger.error(f"Error: Ticker [{chk_ticker}] - ticker_data has no data. Seems to be Invalid.")
+                    raise RuntimeError(f"Error: Ticker [{chk_ticker}] - ticker_data has no data. Seems to be Invalid.")
+
                 ticker_ = yf.Ticker(chk_ticker).history(period='1mo', interval='1d')
+                if ticker_ is None or len(ticker_) == 0:
+                    self.logger.error(f"Error: Ticker [{chk_ticker}] - ticker_ has no data. Seems to be Invalid.")
+                    raise RuntimeError(f"Error: Ticker [{chk_ticker}] - ticker_ has no data. Seems to be Invalid.")
+
                 self.ticker = ticker
-                ticker_data = yf.Ticker(chk_ticker).info
                 self.ticker_data = ticker_data
+                if retry_needed:
+                    retry_success = True
                 break
             except Exception as e:
                 self.logger.error(f"Error: in Ticker().history(): {ticker}\n{e}")
-                if 'Too Many Requests for url' in str(e):
-                    sleep_n = 3
-                    self.logger.warning(f"Too Many yfinance Requests. Sleeping for {sleep_n} second.")
-                    time.sleep(sleep_n)
-                    continue
+                if 'has no data.' in str(e):
+                    retry_needed = True
+                    if retry_cnt < 2:
+                        self.logger.warn(f"Too Many yfinance Requests. Sleeping for {sleep_n} second.")
+                        self.logger.warn(f"WARN: Retrying after sleep({sleep_n})...")
+                        time.sleep(sleep_n)
+                        retry_cnt += 1
+                        continue
+                    else:
+                        break
                 else:
-                    self.logger.error(f"Ticker().history() or Ticker().info failed for Ticker [{chk_ticker}].")
-                    ticker_ = []
-                    ticker = None
+                    self.logger.error(f"Ticker().history() or Ticker().info failed for Ticker [{chk_ticker}]. {e}")
+                    ticker_data = None
                     break
+
+        if retry_needed and retry_success is True:
+            self.logger.info(f"Ticker [{chk_ticker}] pulled successfully on retry.")
 
         return ticker_data
 
@@ -422,26 +461,51 @@ class PricePredict():
 
         # Remove "Test-" from the start of the ticker (used for model testing)
         f_ticker = re.sub(r'^Test-', '', ticker)
-        try:
-            if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
-                data = yf.download(tickers=f_ticker, start=date_start, end=date_end)
-            else:
-                data = yf.download(tickers=f_ticker, start=date_start, end=date_end, interval=self.period)
-        except Exception as e:
-            self.logger.error(f"Error: Could not download data for: {ticker}")
-            self.logger.error(f"Error: {e}")
-            return None, None
+        retry_cnt = 0
+        retry_needed = False
+        retry_success = False
+        data = []
+        while True:
+            try:
+                if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
+                    data = yf.download(tickers=f_ticker, start=date_start, end=date_end)
+                else:
+                    data = yf.download(tickers=f_ticker, start=date_start, end=date_end, interval=self.period)
+                break
+            except Exception as e:
+                if 'Expecting value' in str(e):
+                    retry_needed = True
+                    if retry_cnt < 2:
+                        self.logger.warn(f"Too Many yfinance Requests. Sleeping for {sleep_n} second.")
+                        self.logger.warn(f"WARN: Retrying after sleep({sleep_n})...")
+                        time.sleep(sleep_n)
+                        retry_cnt += 1
+                        continue
+                    else:
+                        break
+                else:
+                    self.logger.error(f" 1: Ticker().history() or Ticker().info failed for Ticker [{f_ticker}].\n {e}")
+                    ticker_data = None
+                    break
 
         if len(data) == 0:
             self.logger.error(f"Error: No data for {ticker} from {date_start} to {date_end}")
-            raise ValueError(f"Error: No data for {ticker} from {date_start} to {date_end}")
+            return None, None
 
         if 'Date' != data.index.name:
             if 'Datetime' == data.index.name:
                 # Rename the data's index.name to 'Date'
                 data.index.name = 'Date'
             else:
-                raise ValueError(f"Error: No Date or Datetime in data.index.name for {ticker} from {date_start} to {date_end}")
+                self.logger.error(f"Error: No Date or Datetime in data.index.name for {ticker} from {date_start} to {date_end}")
+                return None, None
+
+        # If the column is a tuple, then we only want the first part of the tuple.
+        if len(data) > 0:
+            cols = data.columns
+            if type(cols[0]) == tuple:
+                cols = [col[0] for col in cols]
+                data.columns = cols
 
         # Aggregate the data to a weekly period, if nd
         unagg_data = None
@@ -688,8 +752,7 @@ class PricePredict():
         self.model = model
         return model
 
-    def _fetch_model_2(self, ticker='', dateStart='', dateEnd='',
-                       modelDir='../models/'):
+    def _fetch_model_2(self, ticker='', dateStart='', dateEnd='', modelDir=None):
         """
         Load a model given a ticker, start date, and end date.
         :param ticker:
@@ -698,7 +761,8 @@ class PricePredict():
         :return model:
         """
         # Build the filepath to the model
-        model_file = ''
+        if modelDir is None:
+            modelDir = self.model_dir
         model_file = ticker + f"_{self.period}_" + dateStart + "_" + dateEnd + ".keras"
         # Python does not like the = sign in filenames.
         model_file = model_file.replace('=', '~')
@@ -1067,7 +1131,7 @@ class PricePredict():
         # If the ticker is not in the training parameters, then use the default parameters.
 
         if hparams_file is None:
-            hyperparams_files = [ f"./gui_data/ticker_bopts.json", f"../gui_data/ticker_bopts.json" ]
+            hyperparams_files = [f"{self.model_dir}~ticker_bopts.json"]
             for hf in hyperparams_files:
                 if os.path.exists(hf):
                     hparams_file = hf
@@ -1348,7 +1412,7 @@ class PricePredict():
                 model.save(model_path)
             except Exception as e:
                 if i < 3:
-                    self.logger.warning(f"Warning: Failed to Save model [{i}] [{model_path}]\n{e}, will retry...")
+                    self.logger.warn(f"Warning: Failed to Save model [{i}] [{model_path}]\n{e}, will retry...")
                     time.sleep(2)
                     continue
                 else:
