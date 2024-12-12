@@ -2400,18 +2400,23 @@ class PricePredict():
             messages=[
                 {
                     "role": "user",
-                    "content": f'''Please perform a critical analyze the following balance sheets and income statements and 
+                    "content": f'''
+                     <Purpose>
+                     Please perform a critical analyze the following balance sheets and income statements and 
                      give me a review of the company from a financial perspecive and be critical of values from period to 
                      period and consider if missing values indicate mis-reporting of data. And, add a summary of sentiment 
                      analysis of the company from the viewpoint of board members, from the viewpoint of shareholders, and 
                      from the viewpoint of short sellers. Finally, create a sentiment analysis score for the company from 1 to 5, 
                      where 1 is very negative and 5 is very positive. Separate each section into its json attribute.
                      Place the JSON output between the "~~~ JSON Start ~~~" and "~~~ JSON End ~~~" tags, as a the start of the response. 
-                     --- Balance Sheets ---
+                     </Purpose>
+                     <BalanceSheet>
                      {balance_sheet}
-                     --- Income Statements ---
+                     </BalanceSheet>
+                     <IncomeStatements> 
                      {income_statement}
-                     --- Use the following JSON structure as an example for the response ---
+                     </IncomeStatements> 
+                     </JsonOutputFormat> 
                      {{
                       "balance_sheet_analysis": {{
                         "treasury_shares_number": "increased significantly",
@@ -2438,6 +2443,7 @@ class PricePredict():
                       }},
                       "overall_sentiment_score": 2.33
                      }}  
+                     </JsonOutputFormat> 
                      '''
                 }
             ],

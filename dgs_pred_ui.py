@@ -750,7 +750,7 @@ def add_new_symbols(st, exp_sym, syms):
         txt = ''
         if len(already_exists) > 0:
             txt += f"Symbols Already Exist: {already_exists}"
-        txt += f"No New Symbols to Add."
+        txt += f"\n\nNo New Symbols to Add."
         if len(invalid_symbols) > 0:
             txt += f"\n\nInvalid Symbols: {invalid_symbols}"
         st.session_state['exp_sym'].warning(txt)
@@ -782,15 +782,16 @@ def add_new_symbols(st, exp_sym, syms):
         txt += f"\n\nInvalid Symbols: {invalid_symbols}"
     st.session_state['exp_sym'].warning(txt)
 
-    # await analyze_symbols(prog_bar, st.session_state[ss_DfSym])
-    with exp_sym, st.spinner("Analyzing Symbols (Please be patient)..."):
-        # Run an analysis on all symbols
-        prog_bar = exp_sym.progress(0, "Analyzing Symbols")
-        analyze_symbols(st, prog_bar, df_symbols,
-                        added_syms=added_symbols)
+    if len(added_symbols) > 0:
+        # await analyze_symbols(prog_bar, st.session_state[ss_DfSym])
+        with exp_sym, st.spinner("Analyzing Symbols (Please be patient)..."):
+            # Run an analysis on all symbols
+            prog_bar = exp_sym.progress(0, "Analyzing Symbols")
+            analyze_symbols(st, prog_bar, df_symbols,
+                            added_syms=added_symbols)
 
-    st.info("Please Refresh Page After Adding Symbols.")
-    streamlit_js_eval(js_expressions="parent.window.location.reload()")
+        st.info("Please Refresh Page After Adding Symbols.")
+        streamlit_js_eval(js_expressions="parent.window.location.reload()")
 
 
 def display_symbol_charts(interactive_charts=True):
@@ -1389,7 +1390,8 @@ def sync_dpps_objects(st, prog_bar):
                 dill.dump(dpp_d, buffer)
             except Exception as e:
                 logger.warning(f"WARN: pickling PricePredict dpp_d object [{sym}]: {e}")
-                dill.detect.badobjects(dpp_d, depth=2)
+                bo = dill.detect.badobjects(dpp_d, depth=2)
+                logger.error(f"Bad objects in [{dpp_d.ticker}]:w: {bo}")
                 objgraph.show_refs(dpp_d, filename=f'objgraph_{dpp_d.ticker}_dpp_d.png')
                 # Remove the unpicklable object
                 del st.session_state[ss_SymDpps_d][sym]
@@ -1413,7 +1415,8 @@ def sync_dpps_objects(st, prog_bar):
                 dill.dump(dpp_w, buffer)
             except Exception as e:
                 logger.warning(f"WARN: pickling PricePredict dpp_w object [{sym}]: {e}")
-                dill.detect.badobjects(dpp_w, depth=2)
+                bo = dill.detect.badobjects(dpp_w, depth=2)
+                logger.error(f"Bad objects in [{dpp_w.ticker}]:w: {bo}")
                 objgraph.show_refs(dpp_d, filename=f'objgraph_{dpp_d.ticker}_dpp_w.png')
                 # Remove the unpicklable object
                 del st.session_state[ss_SymDpps_w][sym]
@@ -1462,7 +1465,10 @@ def store_pp_objects__(st, prog_bar):
                 f.truncate()
     except Exception as e:
         logger.error(f"Error {dill_sym_dpps_d} - len[{len(sym_dpps_d_)}]: {e}")
-        st.session_state['exp_sym'].error(f"Error saving Daily PricePredict objects: {e}")
+        bo = dill.detect.badobjects(sym_dpps_d_, depth=2)
+        logger.error(f"Bad objects in [{sym_dpps_d_.ticker}]:w: {bo}")
+        objgraph.show_refs(sym_dpps_d_, filename=f'objgraph_{sym_dpps_d_.ticker}_dpp_d.png')
+    st.session_state['exp_sym'].error(f"Error saving Daily PricePredict objects: {e}")
 
     logger.info("Saving PricePredict objects (Weekly Object)...")
     st.session_state['exp_sym'].info("Saving PricePredict Weekly objects...")
@@ -1478,6 +1484,9 @@ def store_pp_objects__(st, prog_bar):
 
     except Exception as e:
         logger.error(f"Error saving  {dill_sym_dpps_w} - len[{len(sym_dpps_w_)}]: {e}")
+        bo = dill.detect.badobjects(sym_dpps_w_, depth=2)
+        logger.error(f"Bad objects in [{sym_dpps_w_.ticker}]:w: {bo}")
+        objgraph.show_refs(sym_dpps_w_, filename=f'objgraph_{sym_dpps_w_.ticker}_dpp_d.png')
         st.session_state['exp_sym'].error(f"Error saving Weekly PricePredict objects: {e}")
 
 
@@ -1502,6 +1511,9 @@ def store_pp_objects(st, prog_bar):
                 with open(file_path, "wb") as f:
                     dill.dump(ppw, f)
             except Exception as e:
+                bo = dill.detect.badobjects(ppw, depth=2)
+                logger.error(f"Bad objects in [{ppw.ticker}]:w: {bo}")
+                objgraph.show_refs(sym_dpps_w_, filename=f'objgraph_{ppw.ticker}_dpp_d.png')
                 logger.error(f"Error saving PricePredict object [{sym_w}]: {e}")
                 failed_ppws.append(sym_w)
     if len(failed_ppws) > 0:
@@ -1524,6 +1536,9 @@ def store_pp_objects(st, prog_bar):
                 with open(file_path, "wb") as f:
                     dill.dump(ppd, f)
             except Exception as e:
+                bo = dill.detect.badobjects(ppd, depth=2)
+                logger.error(f"Bad objects in [{ppd.ticker}]:w: {bo}")
+                objgraph.show_refs(sym_dpps_w_, filename=f'objgraph_{ppd.ticker}_dpp_d.png')
                 logger.error(f"Error saving PricePredict object [{sym_d}]: {e}")
                 failed_ppws.append(sym_d)
     if len(failed_ppws) > 0:
