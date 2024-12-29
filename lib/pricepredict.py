@@ -264,10 +264,12 @@ class PricePredict():
         self.target_low = None            # The target low
         self.pred = None                  # The predictions (4 columns)
         self.pred_rescaled = None         # The  predictions rescaled (4 columns)
+        self.pred_class = None            # The prediction class
         self.pred_close = None            # The adjusted prediction close
         self.pred_high = None             # The adjusted prediction close
         self.pred_low = None              # The adjusted prediction close
         self.adj_pred = None              # The adjusted predictions (3 columns)
+        self.adj_pred_class = None        # The adjusted prediction class
         self.adj_pred_close = None        # The adjusted prediction close
         self.adj_pred_high = None         # The adjusted prediction high
         self.adj_pred_low = None          # The adjusted prediction low
@@ -302,7 +304,7 @@ class PricePredict():
         self.top10xcorr = None            # The top 10 cross correlations dict {'<Sym>': <xCorr%>}
         self.sentiment_json = {}          # The sentiment as json
         self.sentiment_text = ''          # The sentiment as text
-        self.yf_sleep = 30                # The sleep time for yfinance requests
+        self.yf_sleep = 61                # The sleep time for yfinance requests
 
         # Create a logger for this object.
         if logger is None:
@@ -688,6 +690,13 @@ class PricePredict():
 
         # Inverse transform the data (this restores the original scale)
         pred_restored_scale = self.scaler.inverse_transform(data_set_scaled)
+
+        self.pred = pred_restored_scale
+        self.pred_rescaled = pred_restored_scale
+        self.pred_class = pred_restored_scale[:, -4]
+        self.pred_close = pred_restored_scale[:, -3]
+        self.pred_high = pred_restored_scale[:, -2]
+        self.pred_low = pred_restored_scale[:, -1]
 
         # Pull the Target Columns (Predictions) from the restored data.
         pred_restored_scale = pred_restored_scale[:, -self.targets:]
@@ -1466,10 +1475,10 @@ class PricePredict():
         y_pred_rs = self.scaler.inverse_transform(data_set_scaled_y)
         self.pred = y_pred
         self.pred_rescaled = y_pred_rs
-        self.pred_class = y_pred_rs[:, 0]
-        self.pred_close = y_pred_rs[:, 1]
-        self.pred_high = y_pred_rs[:, 2]
-        self.pred_low = y_pred_rs[:, 3]
+        self.pred_class = y_pred_rs[:, -4]
+        self.pred_close = y_pred_rs[:, -3]
+        self.pred_high = y_pred_rs[:, -2]
+        self.pred_low = y_pred_rs[:, -1]
 
         self.logger.debug(f"=== Price Prediction Completed [{self.ticker}] [{self.period}]...")
 
@@ -1486,10 +1495,10 @@ class PricePredict():
                 y_p_delta:   # The deltas between the actual price and the prediction
         """
         # Gather the predicted data for the test period.
-        pred_class = self.pred_rescaled[:, 0]
-        pred_close = self.pred_rescaled[:, 1]
-        pred_high = self.pred_rescaled[:, 2]
-        pred_low = self.pred_rescaled[:, 3]
+        pred_class = self.pred_class
+        pred_close = self.pred_close
+        pred_high = self.pred_high
+        pred_low = self.pred_low
 
         # Gather the target data for the test period.
         target_close = np.array(self.orig_data['Adj Close'].iloc[-len(pred_close):])
@@ -1509,7 +1518,9 @@ class PricePredict():
         min_len = min(len(target_high), len(pred_high))
         target_high = target_high[-min_len:]
         pred_adj_high = [target_high[i] + abs(pred_delta_h[i]) for i in range(0, len(pred_delta_h))]
+
         #    -- Adjusted Close Prediction should not be higher than Adjusted High Prediction
+        #       TODO: Adjust the both high and close to be median between the two.
         pred_adj_high = [pred_adj_close[i] if pred_adj_close[i] > pred_adj_high[i] else pred_adj_high[i] for i in
                          range(0, len(pred_delta_c))]
 
@@ -1518,7 +1529,9 @@ class PricePredict():
         min_len = min(len(target_low), len(pred_low))
         target_low = target_low[-min_len:]
         pred_adj_low = [target_low[i] - abs(pred_delta_l[i]) for i in range(0, len(pred_delta_l))]
+
         #    -- Adjusted Close Prediction should not be lower than Adjusted Low Prediction
+        #       TODO: Adjust the both Low and close to be median between the two.
         pred_adj_low = [pred_adj_close[i] if pred_adj_close[i] < pred_adj_low[i] else
                         pred_adj_low[i] for i in range(0, len(pred_delta_l))]
 

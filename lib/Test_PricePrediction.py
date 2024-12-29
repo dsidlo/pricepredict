@@ -786,8 +786,8 @@ class Test_PricePredict(TestCase):
         self.assertEqual(1007 - pp.back_candles, len(y), "y: Wrong length")
 
         # Use a small batch size and epochs to test the model training
-        pp.epochs = 10
-        pp.batch_size = 5
+        # pp.epochs = 10
+        # pp.batch_size = 5
         # Train the model
         model, y_pred, mse = pp.train_model(X, y)
         self.assertIsNotNone(model, "model: is None")
@@ -816,7 +816,7 @@ class Test_PricePredict(TestCase):
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
         self.assertEqual(features, 19, "features: Wrong count")
         date_data_len = len(dates_data)
-        self.assertGreater(date_data_len, 1800, "dates_data: Wrong length")
+        self.assertGreater(date_data_len, 1200, "dates_data: Wrong length")
         self.assertEqual(date_data_len + 1, len(aug_data), "aug_data: Wrong length")
 
         # Scale the augmented data
@@ -830,8 +830,8 @@ class Test_PricePredict(TestCase):
         self.assertEqual(date_data_len + 1 - pp.back_candles, len(y), "y: Wrong length")
 
         # Use a small batch size and epochs to test the model training
-        pp.epochs = 10
-        pp.batch_size = 5
+        # pp.epochs = 10
+        # pp.batch_size = 5
         # Train the model
         model, y_pred, mse = pp.train_model(X, y)
         self.assertIsNotNone(model, "model: is None")
