@@ -1,4 +1,13 @@
 
+"""
+Class: PricPredict
+
+When instantiated, this class will till stock date from Yahoo Finance, augment the data with technical indicators,
+and train an LSTM model to predict the price of a stock.
+
+See tests for examples of how to use this class.
+
+"""
 import asyncio
 import datetime
 import time
@@ -52,9 +61,15 @@ from pydantic import validate_arguments
 from typing import Any, Dict, List, Optional, Union
 from groq import Groq
 from bayes_opt import BayesianOptimization
+from silence_tensorflow import silence_tensorflow
 
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
+# 0 = all messages are logged (default behavior)
+# 1 = INFO messages are not printed
+# 2 = INFO and WARNING messages are not printed
+# 3 = INFO, WARNING, and ERROR messages are not printed
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 """
 Notes: Regarding training...
@@ -197,8 +212,9 @@ class PricePredict():
                  adam_learning_rate=0.035,    # The current models learning rate
                  shuffle=True,                # Shuffle the data for training the model.
                  val_split=0.1,               # The validation split used during training.
+                 keras_verbosity=0,
                  verbose=True,                # Print debug information
-                 logger = None,               # The logger for this object
+                 logger=None,                 # The logger for this object
                  logger_file_path = None,     # The path to the log file
                  log_level = None,            # The logging level
                  force_training = False,      # Force training the model
@@ -231,7 +247,9 @@ class PricePredict():
         self.seasonal_chart_path = ''     # The path to the seasonal decomposition chart
         self.period = period              # The period for the data (D, W)
         self.model = None                 # The current loaded model
-        self.opt_hypers = {}              # The optimized hyperparameters
+        self.bayes_best_loss = None       # The best loss from the bayesian optimization
+        self.bayes_best_model = None      # The best bayesian optimized model, temp holder.
+        self.bayes_opt_hypers = {}              # The optimized hyperparameters
         self.lstm_units = lstm_units                    # The current models units
         self.lstm_dropout = lstm_dropout                # The current models dropout
         self.adam_learning_rate = adam_learning_rate    # The current models learning rate
@@ -288,9 +306,9 @@ class PricePredict():
         self.val_split = val_split        # The validation split used during training.
         self.seasonal_dec = None          # The seasonal decomposition
         self.keras_log = keras_log        # The keras log file
-        self.keras_verbosity = 0          # The keras verbosity level
-        self.cached_train_data = DataCache     # Cached training data
-        self.cached_pred_data = DataCache      # Cached prediction data
+        self.keras_verbosity = keras_verbosity  # The keras verbosity level
+        self.cached_train_data = DataCache      # Cached training data
+        self.cached_pred_data = DataCache       # Cached prediction data
         # Analitics...
         self.last_analysis = None         # The last analysis
         self.preds_path = None            # The path to the predictions file
@@ -312,6 +330,8 @@ class PricePredict():
         else:
             self.logger = logger
 
+        silence_tensorflow()
+
         # # Set the objects logging to stdout by default for testing.
         # # The logger and the logging-level can be overridden by the calling program
         # # once the object is instantiated.
@@ -321,7 +341,7 @@ class PricePredict():
         #     tf.get_logger().handlers.clear()
 
         # # Turn off this objects logging to stdout
-        # self.logger.propagate = True
+        # self.logger.propagate = False
         # # Turn off tensorflow logging to stdout
         # tf.get_logger().propagate = False
 
@@ -982,7 +1002,7 @@ class PricePredict():
         # Save the cached data into this object...
         self.cached_pred_data = prediction_cache
 
-    def cached_train_predict_report(self, save_plot=True, show_plot=False):
+    def cached_train_predict_report(self, force_training=None, no_report=False, save_plot=True, show_plot=False):
         """
         Train the model, make a prediction, and output a report.
         This method uses the cached training data and the cached prediction data,
@@ -991,8 +1011,14 @@ class PricePredict():
         the training data and prediction data and caching it can be done with blocking calls.
         :return boolean:  # Returns True if the training and prediction were successful.
         """
+
+        if force_training is None and self.force_training is not None:
+            force_training = self.force_training
+        else:
+            force_training = False
+
         self.logger.debug(f"=== Started: Training and Predicting for [{self.ticker}] using cached data...")
-        if self.model is None or self.force_training is True:
+        if self.model is None or force_training is True:
             tc = self.cached_train_data
             if tc is None:
                 self.logger.error(f"Error: No training data cached for {self.ticker}. Cached training data was expected.")
@@ -1030,9 +1056,9 @@ class PricePredict():
                                 date_end=self.dateEnd_train)
 
         # At this point, we have loaded a model.
-        self.cached_predict_report(save_plot=save_plot, show_plot=show_plot)
+        self.cached_predict_report(no_report=no_report, save_plot=save_plot, show_plot=show_plot)
 
-    def cached_predict_report(self, save_plot=True, show_plot=False):
+    def cached_predict_report(self, no_report=False, save_plot=True, show_plot=False):
         # Load the cached prediction
         pc = self.cached_pred_data
         if pc is None:
@@ -1067,21 +1093,23 @@ class PricePredict():
         # Perform data alignment on the prediction data.
         # Doing so makes use the the prediction deltas rather than the actual values.
         self.adjust_prediction()
-        """
-        - Produce a prediction chart.
-        - Save the prediction data to a file or database.
-        - Save to weekly or daily data to a file or database.
-        - Save up/down correlation data to a file or database.
-        - Perform Seasonality Decomposition.
-        - Save the Seasonality Decomposition to a file or database.
-        """
-        self.logger.info(f"Performing price prediction for [{self.ticker}] using cached data...")
-        try:
-            self.gen_prediction_chart(last_candles=75, save_plot=save_plot, show_plot=show_plot)
-        except Exception as e:
-            self.logger.error(f"Exception Error: Could not generate prediction chart: {e}")
 
-        self.save_prediction_data()
+        if no_report is False:
+            """
+            - Produce a prediction chart.
+            - Save the prediction data to a file or database.
+            - Save to weekly or daily data to a file or database.
+            - Save up/down correlation data to a file or database.
+            - Perform Seasonality Decomposition.
+            - Save the Seasonality Decomposition to a file or database.
+            """
+            self.logger.info(f"Performing price prediction for [{self.ticker}] using cached data...")
+            try:
+                self.gen_prediction_chart(last_candles=75, save_plot=save_plot, show_plot=show_plot)
+            except Exception as e:
+                self.logger.error(f"Exception Error: Could not generate prediction chart: {e}")
+
+            self.save_prediction_data()
 
         # Save current datetime of the last analysis.
         self.last_analysis = datetime.now()
@@ -1161,7 +1189,7 @@ class PricePredict():
                 hyper_params = opt_params['hparams']
                 hyper_params_s = json.dumps(hyper_params)
                 if sym == ticker:
-                    self.opt_hypers = hyper_params
+                    self.bayes_opt_hypers = hyper_params
                     self.lstm_units = int(hyper_params['params']['lstm_units'])
                     self.lstm_dropout = hyper_params['params']['lstm_dropout']
                     self.adam_learning_rate = hyper_params['params']['adam_learning_rate']
@@ -1242,7 +1270,7 @@ class PricePredict():
                   verbose=self.keras_verbosity)
 
         if len(X_test) > 0:
-            y_pred = model.predict(X_test)
+            y_pred = model.predict(X_test, verbose=self.keras_verbosity)
             fy_pred = np.array(pd.DataFrame(y_pred).replace({np.nan: 0}))
             fy_test = np.array(pd.DataFrame(y_test).replace({np.nan: 0}))
             mse = mean_squared_error(fy_test, fy_pred)
@@ -1335,10 +1363,21 @@ class PricePredict():
                   callbacks=[early_stopping, csv_logger],
                   verbose=self.keras_verbosity)
 
-        loss = model.evaluate(X_test, y_test)
+        loss = model.evaluate(X_test, y_test, verbose=self.keras_verbosity)
+        # We are looking for a loss value that is as close to zero as possible.
+        if self.bayes_best_loss is None or abs(loss) < abs(self.bayes_best_loss):
+            self.bayes_best_loss = loss
+            # Hold on to the best Hyperparameters
+            self.lstm_units = lstm_units
+            self.lstm_dropout = lstm_dropout
+            self.adam_learning_rate = adam_learning_rate
+            # Hold onto the best model found thus far.
+            self.bayes_best_model = model
+
         return loss
 
     def bayesian_optimization(self, X, y,
+                              # Hyperparameter Ranges
                               pb_lstm_units=(32, 256),
                               pb_lstm_dropout=(0.1, 0.5),
                               pb_adam_learning_rate=(0.001, 0.1),
@@ -1367,13 +1406,20 @@ class PricePredict():
         optimizer.maximize(init_points=10, n_iter=20)
 
         # Save the best parameters
-        self.opt_hypers = optimizer.max
+        self.bayes_opt_hypers = optimizer.max
         self.lstm_dropout = optimizer.max['params']['lstm_dropout']
         self.lstm_units = optimizer.max['params']['lstm_units']
         self.adam_learning_rate = optimizer.max['params']['adam_learning_rate']
 
-        self.logger.info(f"Bayesian Optimization: {optimizer.max}")
+        self.logger.info(f"Ticker: {self.ticker} Bayesian Optimization: {optimizer.max}")
         print(f"Bayesian Optimization: {{ Ticker: {self.ticker}: {optimizer.max} }}")
+
+        # Make this PP objects models the best model found by the optimizer.
+        self.model = self.bayes_best_model
+        # Clear the saved model to reduce this object's pickle size
+        self.bayes_best_model = None
+        # Save out eh best model
+        self.save_model(model=self.model, ticker=self.ticker)
 
         if opt_csv is not None:
             # Append the results to a CSV file.
@@ -1460,29 +1506,30 @@ class PricePredict():
             y_pred = self.model.predict(X_data, verbose=self.keras_verbosity)
         except Exception as e:
             self.logger.error(f"Error: Predicting Price: {e}")
-            raise ValueError(f"Error: Predicting Price: {e}")
+            return None
+        else:
+            # if self.split_limit is None:
+            #     self.split_limit = int(len(X_data) * self.split_pcnt)
+            self.split_limit = int(len(X_data) * self.split_pcnt)
 
-        # if self.split_limit is None:
-        #     self.split_limit = int(len(X_data) * self.split_pcnt)
-        self.split_limit = int(len(X_data) * self.split_pcnt)
+            # Rescaled the predicted values to dollars...
+            data_set_scaled_y = self.data_scaled[-(self.back_candles + self.split_limit):, :].copy()
+            # Replace the last columns 4 in data_set_scaled_y with the predicted column values...
+            min_len = min(len(y_pred), len(data_set_scaled_y))
+            data_set_scaled_y[-min_len:, -self.targets:] = y_pred[-min_len:]
 
-        # Rescaled the predicted values to dollars...
-        data_set_scaled_y = self.data_scaled[-(self.back_candles + self.split_limit):, :].copy()
-        # Replace the last columns 4 in data_set_scaled_y with the predicted column values...
-        min_len = min(len(y_pred), len(data_set_scaled_y))
-        data_set_scaled_y[-min_len:, -self.targets:] = y_pred[-min_len:]
+            y_pred_rs = self.scaler.inverse_transform(data_set_scaled_y)
+            self.pred = y_pred
+            self.pred_rescaled = y_pred_rs
+            self.pred_class = y_pred_rs[:, -4]
+            self.pred_close = y_pred_rs[:, -3]
+            self.pred_high = y_pred_rs[:, -2]
+            self.pred_low = y_pred_rs[:, -1]
 
-        y_pred_rs = self.scaler.inverse_transform(data_set_scaled_y)
-        self.pred = y_pred
-        self.pred_rescaled = y_pred_rs
-        self.pred_class = y_pred_rs[:, -4]
-        self.pred_close = y_pred_rs[:, -3]
-        self.pred_high = y_pred_rs[:, -2]
-        self.pred_low = y_pred_rs[:, -1]
-
-        self.logger.debug(f"=== Price Prediction Completed [{self.ticker}] [{self.period}]...")
+            self.logger.debug(f"=== Price Prediction Completed [{self.ticker}] [{self.period}]...")
 
         return y_pred
+
 
     def adjust_prediction(self):
         """
@@ -1700,12 +1747,12 @@ class PricePredict():
             try:
                 if save_plot:
                     fig, ax = mpf.plot(df_plt_test_usd[-min_len:], **kwargs,
-                                   style='binance', addplot=preds, savefig=save_dict, returnfig=True)
+                                       style='binance', addplot=preds, savefig=save_dict, returnfig=True)
                 elif show_plot:
                     # For the interactive plot to show up, import mplfinance
                     # at the top of the script (or global level).
                     fig, ax = mpf.plot(df_plt_test_usd[-min_len:], **kwargs,
-                                   style='binance', addplot=preds, returnfig=True)
+                                       style='binance', addplot=preds, returnfig=True)
             except Exception as e:
                 self.logger.error(f"Error: Could not plot chart. {e}")
 
@@ -1880,6 +1927,7 @@ class PricePredict():
     def fetch_train_and_predict(self, ticker,
                                 train_date_start, train_date_end,
                                 pred_date_start, pred_date_end,
+                                force_training=None,
                                 period=None, split_pcnt=None, backcandels=None,
                                 use_curr_model=True, save_model=False):
         """
@@ -1902,6 +1950,11 @@ class PricePredict():
         :return:
         """
 
+        if force_training is None and self.force_training is not None:
+            force_training = self.force_training
+        else:
+            self.force_training = force
+
         if ticker is None or ticker == '':
             self.logger.error("Error: ticker is empty.")
             raise ValueError("Error: ticker is empty.")
@@ -1923,14 +1976,19 @@ class PricePredict():
             self.back_candles = backcandels
 
         model = None
-        if use_curr_model and self.force_training is False:
-            # Load an existing model if it exists
-            model_path = self.model_dir + ticker + f"_{period}_" + train_date_start + "_" + train_date_end + ".keras"
-            if os.path.exists(model_path):
-                model = self.load_model(model_path)
-                self.logger.info(f">>> Model Loaded: {model_path}")
+        if use_curr_model and force_training is False:
+            # If the self.model is None, load the latest model if it exists...
+            if self.model is not None:
+                # Load an existing model if it exists
+                model_path = self.model_dir + ticker + f"_{period}_" + train_date_start + "_" + train_date_end + ".keras"
+                if os.path.exists(model_path):
+                    model = self.load_model(model_path)
+                    self.logger.info(f">>> Model Loaded: {model_path}")
+                else:
+                    self.logger.info(f"=== Model Not Found: {model_path}")
             else:
-                self.logger.info(f"=== Model Not Found: {model_path}")
+                # Use the currently load loaded model.
+                model = self.model
 
         if model is None:
             # Load training data and prepare the data
@@ -2029,7 +2087,7 @@ class PricePredict():
         # Prepare the model inputs
         X, y = self.prep_model_inputs(data_scaled, features)
         # Predict the price
-        orig_predictions = model.predict(X)
+        orig_predictions = model.predict(X, verbose=self.keras_verbosity)
         # Restore the scale of the prediction
         rs_orig_predictions = self.restore_scale_pred(orig_predictions)
 
@@ -2414,49 +2472,88 @@ class PricePredict():
                 {
                     "role": "user",
                     "content": f'''
-                     <Purpose>
-                     Please perform a critical analyze the following balance sheets and income statements and 
-                     give me a review of the company from a financial perspecive and be critical of values from period to 
-                     period and consider if missing values indicate mis-reporting of data. And, add a summary of sentiment 
-                     analysis of the company from the viewpoint of board members, from the viewpoint of shareholders, and 
-                     from the viewpoint of short sellers. Finally, create a sentiment analysis score for the company from 1 to 5, 
-                     where 1 is very negative and 5 is very positive. Separate each section into its json attribute.
-                     Place the JSON output between the "~~~ JSON Start ~~~" and "~~~ JSON End ~~~" tags, as a the start of the response. 
-                     </Purpose>
-                     <BalanceSheet>
-                     {balance_sheet}
-                     </BalanceSheet>
-                     <IncomeStatements> 
-                     {income_statement}
-                     </IncomeStatements> 
-                     </JsonOutputFormat> 
-                     {{
-                      "balance_sheet_analysis": {{
-                        "treasury_shares_number": "increased significantly",
-                        "ordinary_shares_number": "increasing",
-                        "net_debt": "increased significantly",
-                        "cash_and_cash_equivalents": "increased significantly"
-                      }},
-                      "income_statement_analysis": {{
-                        "net_income_from_continuing_operation_net_minority_interest": "significant losses",
-                        "ebitda": "consistently negative",
-                        "interest_expense": "increasing",
-                        "research_and_development_expenses": "increasing"
-                      }},
-                      "critical_analysis": {{
-                        "missing_values": "incomplete financial statements",
-                        "debt_level": "increasing",
-                        "ebitda": "negative",
-                        "net_income": "significant losses"
-                      }},
-                      "sentiment_analysis": {{
-                        "board_members": 2,
-                        "shareholders": 2,
-                        "short_sellers": 4
-                      }},
-                      "overall_sentiment_score": 2.33
-                     }}  
-                     </JsonOutputFormat> 
+                     <promptInputs>
+                         <Purpose>
+                         Please perform a critical analyze the following balance sheets and income statements and 
+                         give me a review of the company from a financial perspective and be critical of values from period to
+                         period and consider if missing values indicate mis-reporting of data. And, add a summary of sentiment
+                         analysis of the company from the viewpoint of board members, from the viewpoint of shareholders, and 
+                         from the viewpoint of short sellers. Finally, create a sentiment analysis score for the company from 1 to 5,
+                         where 1 is very negative and 5 is very positive. Separate each section into its json attribute.
+                         Place the JSON output between the "<JsonOutputFormat>" and "</JsonOutputFormat>" tags, at the start of the response.
+                         Place the sentiment text output between the "<sentimentTextOutput>" and "</sentimentTextOutput>" tags, at a the end of the response.
+                         </Purpose>
+                         <BalanceSheet>
+                         {balance_sheet}
+                         </BalanceSheet>
+                         <IncomeStatements> 
+                         {income_statement}
+                         </IncomeStatements>
+                     </promptInputs>
+                     <exampleOutput>
+                         <sentimentTextOutput> 
+                         Here's a breakdown of the analysis:
+    
+                         **Balance Sheet Analysis**
+                        
+                         * Treasury shares number: No change, as NaN values are present.
+                         * Ordinary shares number: Stable, with no significant changes.
+                         * Net debt: Increased significantly, which may be a concern.
+                         * Cash and cash equivalents: Increased significantly, indicating sufficient liquidity.
+                        
+                         **Income Statement Analysis**
+                        
+                         * Net income from continuing operation net minority interest: Increased significantly, a positive sign.
+                         * EBITDA: Consistently positive, indicating a healthy operating performance.
+                         * Interest expense: Decreasing, which is a positive trend.
+                         * Research and development expenses: Increasing, which may be a strategic investment for future growth.
+                        
+                         **Critical Analysis**
+                        
+                         * Missing values: Some incomplete financial statements, which may indicate a lack of transparency or mis-reporting of data.
+                         * Debt level: Increasing, which may be a concern for investors and creditors.
+                         * Tangible book value: No information provided, which makes it difficult to assess the company's financial health.
+                         * Cash convertibility: Sufficient liquidity, as indicated by the increased cash and cash equivalents.
+                        
+                         **Sentiment Analysis**
+                        
+                         * Board members: 3 (neutral), as they may be concerned about the increasing debt level but optimistic about the company's growth prospects.
+                         * Shareholders: 3 (neutral), as they may be pleased with the increasing net income but concerned about the debt level and missing values.
+                         * Short sellers: 2 (somewhat negative), as they may be skeptical about the company's ability to sustain its growth and concerned about the increasing debt level.
+                        
+                         **Overall Sentiment Score**
+                        
+                         * 2.67 (somewhat positive), as the company's financial performance is generally positive, but concerns about debt level and missing values exist.
+                         </sentimentTextOutput> 
+                         <JsonOutputFormat> 
+                         {{
+                          "balance_sheet_analysis": {{
+                            "treasury_shares_number": "increased significantly",
+                            "ordinary_shares_number": "increasing",
+                            "net_debt": "increased significantly",
+                            "cash_and_cash_equivalents": "increased significantly"
+                          }},
+                          "income_statement_analysis": {{
+                            "net_income_from_continuing_operation_net_minority_interest": "significant losses",
+                            "ebitda": "consistently negative",
+                            "interest_expense": "increasing",
+                            "research_and_development_expenses": "increasing"
+                          }},
+                          "critical_analysis": {{
+                            "missing_values": "incomplete financial statements",
+                            "debt_level": "increasing",
+                            "ebitda": "negative",
+                            "net_income": "significant losses"
+                          }},
+                          "sentiment_analysis": {{
+                            "board_members": 2,
+                            "shareholders": 2,
+                            "short_sellers": 4
+                          }},
+                          "overall_sentiment_score": 2.33
+                         }}  
+                         </JsonOutputFormat> 
+                     </exampleOutput>
                      '''
                 }
             ],
@@ -2470,21 +2567,26 @@ class PricePredict():
             return
 
         # Extract the JSON response from the content using a regular expression
-        cnt_matches = re.match(r'.*(~~~ JSON Start ~~~|\'\'\')\n(.*)\n(~~~ JSON End ~~~|\'\'\')\n(.*)',
+        jsn_matches = re.match(r'.*(\<JsonOutputFormat\>)\n(.*)\n(\<\/JsonOutputFormat\>)\n(.*)',
                                content, re.DOTALL | re.MULTILINE)
-
-        if cnt_matches is not None:
+        txt_matches = re.match(r'.*(\<sentimentTextOutput\>)\n(.*)\n(\<\/sentimentTextOutput\>)',
+                               content, re.DOTALL | re.MULTILINE)
+        if jsn_matches is not None and txt_matches is not None:
+            self.sentiment_text = ''
+            self.sentiment_json = {}
             try:
-                json_response = json.loads(cnt_matches.group(2))
-                self.sentiment_json = json_response
+                jsn_str = jsn_matches.group(2)
+                txt_str = txt_matches.group(2)
+                self.sentiment_text = txt_str.strip()
+                self.sentiment_json = json.loads(jsn_str.strip())
             except Exception as e:
                 self.sentiment_json = {}
                 self.logger.warn(f"Failed to parse JSON response from Groq for sentiment on {self.ticker}.\n{e}")
-            text_response = cnt_matches.group(4)
-            self.sentiment_text = text_response.strip()
+                self.sentiment_text = content.strip()
         else:
             self.sentiment_json = {}
             self.sentiment_text = ''
+
 
     def seasonality(self, save_chart: bool = False,
                           show_chart: bool = False,

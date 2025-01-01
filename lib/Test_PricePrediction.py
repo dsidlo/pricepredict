@@ -1265,13 +1265,6 @@ class Test_PricePredict(TestCase):
         # =========================================
         # First we need to create a model file
         ticker = "AAPL"
-        test_ticker = "Test-" + ticker
-        # Data download dates
-        start_date = "2024-06-01"
-        end_date = "2024-07-30"
-        # Model file dates
-        mdl_start_date = "2015-01-01"
-        mdl_end_date = "2024-07-30"
 
         pp.ticker = ticker
         pp.groq_sentiment()

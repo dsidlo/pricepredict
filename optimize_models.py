@@ -123,7 +123,7 @@ def main():
                     print(f"Optimization for {ticker} generated an exception: {e}")
                 else:
                     # Write out the optimized hyperparameters to a JSON file
-                    opt_hypers_s = json.dumps(pp.opt_hypers)
+                    opt_hypers_s = json.dumps(pp.bayes_opt_hypers)
                     f.write(f'{{ "symbol": "{pp.ticker}", "hparams": {opt_hypers_s} }}\n')
                     print(f'Completed Hyperparameters Optimization: {pp.ticker}')
 
