@@ -30,6 +30,7 @@ import sklearn as skl
 import sys
 import tensorflow as tf
 import yfinance as yf
+import yfinance_cache as yfc
 import logging
 import statsmodels.api as sm
 import json
@@ -218,7 +219,8 @@ class PricePredict():
                  logger_file_path = None,     # The path to the log file
                  log_level = None,            # The logging level
                  force_training = False,      # Force training the model
-                 keras_log = 'PricePredict_keras.log'  # The keras log file
+                 keras_log = 'PricePredict_keras.log',  # The keras log file
+                 yf_sleep=61,                 # The sleep time for yfinance requests
                  ):
         """
         Initialize the PricePredict class.
@@ -322,7 +324,9 @@ class PricePredict():
         self.top10xcorr = None            # The top 10 cross correlations dict {'<Sym>': <xCorr%>}
         self.sentiment_json = {}          # The sentiment as json
         self.sentiment_text = ''          # The sentiment as text
-        self.yf_sleep = 61                # The sleep time for yfinance requests
+        self.yf_sleep = yf_sleep          # The sleep time for yfinance requests
+        self.yf_cached = True            # Using the yfinance_cache
+        self.yf = None
 
         # Create a logger for this object.
         if logger is None:
@@ -368,6 +372,13 @@ class PricePredict():
         if not os.path.exists(self.preds_dir):
             raise RuntimeError(f"*** Exception: Predictions directory [{self.preds_dir}] does not exist at [{os.getcwd()}]")
 
+        # Set the yfinance mode...
+        if self.yf is None:
+            if self.yf_cached:
+                self.yf = yfc
+            else:
+                self.yf = yf
+
         self.logger.debug(f"=== PricePredict: Initialized.")
 
     def chk_yahoo_ticker(self, ticker):
@@ -399,12 +410,19 @@ class PricePredict():
         retry_success = False
         retry_cnt = 0
         sleep_n = self.yf_sleep
+
+        xyf = self.yf
+        # Check if ticker begins with '^'
+        if chk_ticker[0] == '^' and self.yf_cached:
+            # Don't use yfinance_cache for indexes.
+            xyf = yf
+
         # Check yahoo if symbol is valid...
         while True:
             try:
                 # period='5d' can fail for some tickers such as SRCL
                 try:
-                    ticker_data = yf.Ticker(chk_ticker).info
+                    ticker_data = xyf.Ticker(chk_ticker).info
                 except Exception as e:
                     if 'json' in str(e):
                         self.logger.warn(f"Warn: 1 - Ticker().info JSON processing for Ticker [{chk_ticker}].")
@@ -425,7 +443,7 @@ class PricePredict():
                     self.logger.error(f"Error: Ticker [{chk_ticker}] - ticker_data has no data. Seems to be Invalid.")
                     raise RuntimeError(f"Error: Ticker [{chk_ticker}] - ticker_data has no data. Seems to be Invalid.")
 
-                ticker_ = yf.Ticker(chk_ticker).history(period='1mo', interval='1d')
+                ticker_ = xyf.Ticker(chk_ticker).history(period='1mo', interval='1d')
                 if ticker_ is None or len(ticker_) == 0:
                     self.logger.error(f"Error: Ticker [{chk_ticker}] - ticker_ has no data. Seems to be Invalid.")
                     raise RuntimeError(f"Error: Ticker [{chk_ticker}] - ticker_ has no data. Seems to be Invalid.")
@@ -438,6 +456,10 @@ class PricePredict():
             except Exception as e:
                 self.logger.error(f"Error: in Ticker().history(): {ticker}\n{e}")
                 if 'has no data.' in str(e):
+                    # When API requests limit is reached, we have to sleep for at least 60 seconds.
+                    # The "Too Many Requests" exception gets hidden behind a JSON error, so we assume that
+                    # if we get the "has no data" error, we hit the API limit, and must sleep.
+                    # For testing on an invalid ticker, we make yf_sleep = 3 for faster testing.
                     retry_needed = True
                     if retry_cnt < 2:
                         self.logger.warn(f"Too Many yfinance Requests. Sleeping for {sleep_n} second.")
@@ -470,6 +492,12 @@ class PricePredict():
             feature_cnt:    # The number of features in the data
         """
 
+        xyf = self.yf
+        # Check if ticker begins with '^'
+        if ticker[0] == '^' and self.yf_cached:
+            # Don't use yfinance_cache for indexes.
+            xyf = yf
+
         if period is None:
             period = self.period
         else:
@@ -490,9 +518,9 @@ class PricePredict():
         while True:
             try:
                 if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
-                    data = yf.download(tickers=f_ticker, start=date_start, end=date_end)
+                    data = xyf.download(tickers=f_ticker, start=date_start, end=date_end)
                 else:
-                    data = yf.download(tickers=f_ticker, start=date_start, end=date_end, interval=self.period)
+                    data = xyf.download(tickers=f_ticker, start=date_start, end=date_end, interval=self.period)
                 break
             except Exception as e:
                 if 'Expecting value' in str(e):
@@ -514,6 +542,22 @@ class PricePredict():
             self.logger.error(f"Error: No data for {ticker} from {date_start} to {date_end}")
             return None, None
 
+        # If the column is a tuple, then we only want the first part of the tuple.
+        if len(data) > 0:
+            cols = data.columns
+            if type(cols[0]) == tuple:
+                cols = [col[0] for col in cols]
+                data.columns = cols
+
+        if self.yf_cached and 'Adj Close' not in data.columns:
+            data['Adj Close'] = data['Close']
+            data = data[['Adj Close', 'Close', 'High', 'Low', 'Open', 'Volume']]
+
+        if data.index.name is None and isinstance(data.index, pd.DatetimeIndex):
+            # This happens when using yfinance_cache.
+            # Give the unnamed DateTimeIndex the name 'Date'.
+            data.index.name = 'Date'
+
         if 'Date' != data.index.name:
             if 'Datetime' == data.index.name:
                 # Rename the data's index.name to 'Date'
@@ -521,13 +565,6 @@ class PricePredict():
             else:
                 self.logger.error(f"Error: No Date or Datetime in data.index.name for {ticker} from {date_start} to {date_end}")
                 return None, None
-
-        # If the column is a tuple, then we only want the first part of the tuple.
-        if len(data) > 0:
-            cols = data.columns
-            if type(cols[0]) == tuple:
-                cols = [col[0] for col in cols]
-                data.columns = cols
 
         # Aggregate the data to a weekly period, if nd
         unagg_data = None
@@ -2454,9 +2491,14 @@ class PricePredict():
         return ret_dict
 
     def groq_sentiment(self):
-        # Replace 'AAPL' with the ticker symbol of the stock you are interested in
-        ticker_symbol = 'TSLA'
-        stock = yf.Ticker(ticker_symbol)
+
+        if self.ticker[0] == '^':
+            # Indexes can't support sentiment analysis.
+            self.sentiment_json = {}
+            self.sentiment_text = f'Indexes [{self.ticker}] do not support sentiment analysis.'
+            return
+
+        stock = self.yf.Ticker(self.ticker)
         # balance_sheet = stock.balance_sheet
         balance_sheet = stock.quarterly_balance_sheet
         income_statement = stock.financials

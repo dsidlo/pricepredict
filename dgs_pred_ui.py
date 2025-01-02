@@ -247,6 +247,8 @@ def  main(message):
             with exp_sym, st.spinner("Optimizing Models (Please be patient)..."):
                 pb_opt_hparams = exp_sym.progress(0, "Optimize Symbols Hyperparameters")
                 optimize_hparams(st, pb_opt_hparams)
+            pb_store_objs = exp_sym.progress(0, "Storing PricePredict Objects")
+            store_pp_objects(st, pb_store_objs)
 
         # ********* Add/Remove Groups *********
         exp_grps = st.expander("Add/Remove Groups", expanded=False)

@@ -74,7 +74,11 @@ class Test_PricePredict(TestCase):
 
     def test_chk_yahoo_ticker(self):
         # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
+        pp = PricePredict(model_dir='../models/',
+                          chart_dir='../charts/',
+                          preds_dir='../predictions/',
+                          # For Testing, sleep faster for invalid Ticker
+                          yf_sleep=3)
 
         ticker = "AAPL"
         ticker_data = pp.chk_yahoo_ticker(ticker)
