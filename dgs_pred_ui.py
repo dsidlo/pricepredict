@@ -70,6 +70,7 @@ ss_forceOptimization = 'force_optimization'
 ss_fDf_symbols_updated = 'st_df_symbols_updated'
 ss_fRmChosenSyms = 'Remove Chosen Symbols Flag'
 ss_forceTraining = "cbForceTraining"
+ss_forceAnalysis = "cbForceAnalysis"
 ss_fRemoveNewSyms = 'remove_new_sym'
 ss_fYesRemoveNewSyms = 'yes_remove_new_sym'
 # Variables for Grouping Operations...
@@ -213,10 +214,13 @@ def  main(message):
         col1, col2 = exp_sym.columns(2)
         col1.button("Analyze Current Symbols", key="process_syms")
         col2.checkbox("Force Training", key=ss_forceTraining)
+        col2.checkbox("Force Analysis", key=ss_forceAnalysis)
         if st.session_state.process_syms:
             with exp_sym, st.spinner("Analyzing Symbols (Please be patient)..."):
                 prog_bar = exp_sym.progress(0, "Analyzing Symbols")
-                analyze_symbols(st, prog_bar, st.session_state[ss_DfSym], force_training=ss_forceTraining)
+                analyze_symbols(st, prog_bar, st.session_state[ss_DfSym],
+                                force_training=st.session_state[ss_forceTraining],
+                                force_analysis=st.session_state[ss_forceAnalysis])
 
         elif 'prog_bar' in locals():
             prog_bar.empty()
@@ -772,7 +776,7 @@ def add_new_symbols(st, exp_sym, syms):
                             model_dir=model_dir,
                             chart_dir=chart_dir,
                             preds_dir=preds_dir)
-        pp_d.last_analysis = five_days_ago
+        pp_d.last_analysis = datetime.now()
         st.session_state[ss_SymDpps_d][sym] = pp_d
         # Create a Weekly PricePredict object for the symbol
         pp_w = PricePredict(ticker=sym,
@@ -780,7 +784,7 @@ def add_new_symbols(st, exp_sym, syms):
                             model_dir=model_dir,
                             chart_dir=chart_dir,
                             preds_dir=preds_dir)
-        pp_w.last_analysis = five_days_ago
+        pp_w.last_analysis = datetime.now()
         st.session_state[ss_SymDpps_w][sym] = pp_w
 
     txt = f"New Symbols Added: {added_symbols}"
@@ -1073,7 +1077,10 @@ def get_sym_image_file(sym, period, path):
 # Analyze the symbols in the DataFrame, in a separate thread.
 # ======================================================================
 # async def analyze_symbols(prog_bar, df_symbols):
-def analyze_symbols(st, prog_bar, df_symbols, added_syms=None, force_training=False):
+def analyze_symbols(st, prog_bar, df_symbols,
+                    added_syms=None,
+                    force_training=False,
+                    force_analysis=False):
     logger.info("*** Analyzing Symbols: Started ***")
     all_df_symbols = st.session_state[ss_AllDfSym]
     total_syms = all_df_symbols.shape[0]
@@ -1112,7 +1119,7 @@ def analyze_symbols(st, prog_bar, df_symbols, added_syms=None, force_training=Fa
                 # Get the datetime of 5 days ago
                 five_days_ago = datetime.now() - timedelta(days=7)
                 # This will force an update of the ppw object
-                ppw.last_analysis = five_days_ago
+                ppw.last_analysis = datetime.now()
                 ppw.force_training = True
 
             logger.info(f"Weekly - Pull data for model: {row.Symbol}")
@@ -1122,7 +1129,9 @@ def analyze_symbols(st, prog_bar, df_symbols, added_syms=None, force_training=Fa
                 # future = executor.submit(task_train_predict_report, row.Symbol, ppw)
                 # futures.append(future)
                 tm.submit(task_train_predict_report, row.Symbol, ppw,
-                          added_syms=added_syms, force_training=force_training)
+                          added_syms=added_syms,
+                          force_training=force_training,
+                          force_analysis=force_analysis)
                 total_syms += 1
             except Exception as e:
                 logger.error(f"Error processing symbol: {row.Symbol}\n{e}")
@@ -1147,7 +1156,7 @@ def analyze_symbols(st, prog_bar, df_symbols, added_syms=None, force_training=Fa
                 # Get the datetime of 5 days ago
                 five_days_ago = datetime.now() - timedelta(days=3)
                 # This will force an update of the ppd object
-                ppd.last_analysis = five_days_ago
+                ppd.last_analysis = datetime.now()
                 ppd.force_training = True
 
             logger.info(f"Daily - Pull data for model: {row.Symbol}")
@@ -1157,7 +1166,9 @@ def analyze_symbols(st, prog_bar, df_symbols, added_syms=None, force_training=Fa
                 # future = executor.submit(task_train_predict_report, row.Symbol, ppd)
                 # futures.append(future)
                 tm.submit(task_train_predict_report, row.Symbol, ppd,
-                          added_syms=added_syms, force_training=force_training)
+                          added_syms=added_syms,
+                          force_training=force_training,
+                          force_analysis=force_analysis)
                 total_syms += 1
             except Exception as e:
                 logger.error(f"Error pull-train-predict on symbol: {row.Symbol}\n{e}")
@@ -1558,7 +1569,7 @@ def task_pull_data(symbol_, dpp):
 
     logger.info(f"Pulling data for {symbol_}...")
     if dpp.last_analysis is not None:
-        if dpp.last_analysis > ago24hrs:
+        if dpp.last_analysis > ago24hrs and dpp.model is not None:
             logger.info(f"PricePredict object is already up-to-date: {symbol_}")
             return symbol_, dpp
 
@@ -1588,13 +1599,14 @@ def task_pull_data(symbol_, dpp):
     return symbol_, dpp
 
 
-def task_train_predict_report(symbol_, dpp, added_syms=None, force_training=False):
+def task_train_predict_report(symbol_, dpp, added_syms=None,
+                              force_training=False, force_analysis=False):
     # Get datetime 24 hours ago
     ago24hrs = datetime.now() - timedelta(days=1)
 
     if dpp.last_analysis is not None:
-        if dpp.last_analysis > ago24hrs:
-            logger.info(f"PricePredict object is already updodate: {symbol_}")
+        if dpp.last_analysis > ago24hrs and force_analysis is False and dpp.model is not None:
+            logger.info(f"PricePredict object is already uptodate: {symbol_}")
             return symbol_, dpp
     # Process the cached data as needed...
     # - Trains and Saves a new model if needed
@@ -1604,7 +1616,7 @@ def task_train_predict_report(symbol_, dpp, added_syms=None, force_training=Fals
         added_syms = []
     if dpp.ticker in added_syms:
         force_training = True
-    if force_training or dpp.last_analysis is None:
+    if force_training or dpp.last_analysis is None or dpp.model is None:
         logger.info(f"Training and predicting for {symbol_}...")
         dd = dpp.cached_train_data.get_item('dates_data')
         dpp.cached_train_predict_report(force_training=True)
@@ -1775,7 +1787,9 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
     logger.debug(f"Calculating Period [{prd}] Correlations...")
 
     # Minimum number of data points required for correlation calculations
-    min_data_points = 50
+    min_data_points = 200
+    # Data points to request from Yahoo if data is needed
+    req_data_points = 400
 
     # Correlations on the Daily Objects...
     all_df_symbols = st.session_state[ss_AllDfSym]
@@ -1793,6 +1807,16 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
         target_sym = sym_dpps[tsym]
         target_sym.ticker = tsym  # Make sure the ticker is set correctly
 
+        days_back = req_data_points
+        if target_sym.period == PricePredict.PeriodWeekly:
+            days_back = req_data_points * 7
+
+        if target_sym.orig_data is None or len(target_sym.orig_data) < min_data_points:
+            # Load up the data for the target symbol if it does not have enough data points
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+            target_sym.fetch_data_yahoo(target_sym.ticker, start_date, end_date, target_sym.period)
+
         if target_sym.orig_data is None or len(target_sym.orig_data) < min_data_points:
             len_ = None
             if target_sym.orig_data is not None:
@@ -1808,17 +1832,27 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
             if tsym != ssym:
                 source_sym = sym_dpps[ssym]
 
+                days_back = req_data_points
+                if source_sym.period == PricePredict.PeriodWeekly:
+                    days_back = req_data_points * 7
+
+                if source_sym.orig_data is None or len(source_sym.orig_data) < min_data_points:
+                    # Load up the data for the target symbol if it does not have enough data points
+                    end_date = datetime.now().strftime("%Y-%m-%d")
+                    start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+                    source_sym.fetch_data_yahoo(source_sym.ticker, start_date, end_date, source_sym.period)
+
                 if source_sym.orig_data is None or len(source_sym.orig_data) < min_data_points:
                     len_ = None
                     if source_sym.orig_data is not None:
                         len_ = len(source_sym.orig_data)
                     logger.info(
-                        f"1: Symbol source:[{ssym}] [{len_}] has less than {min_data_points} data points. Wont calculate correlations.")
+                        f"1: Symbol source:[{ssym} {source_sym.period}] [{len_}] has less than {min_data_points} data points. Wont calculate correlations.")
                     continue
 
                 corr = target_sym.periodic_correlation(source_sym)
                 sym_corr[(tsym, ssym)] = corr
-                # print(f"Cross Correlation for {tsym} and {ssym} completed.")
+
     corrs = []
     i = 0
     item_cnt = len(sym_corr)
@@ -1829,15 +1863,18 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
         if sym_corr[ts] is None:
             logger.debug(f"Symbol Correlation (sym_corr) for [{ts}] is None")
             continue
-        # corrs.append((ts, (round(sym_corr[ts]['pct_corr'], 5),
-        #                    round(sym_corr[ts]['pct_uncorr'], 5))))
+
         corrs.append((ts, (round(sym_corr[ts]['avg_corr'], 5),
-                           round(sym_corr[ts]['pct_uncorr'], 5))))
+                           round(sym_corr[ts]['pct_uncorr'], 5),
+                           round(sym_corr[ts]['coint_test']['coint_measure'], 5))))
+
     # Sort the correlations by the pct_uncorr value
-    # srt_corrs = sorted(corrs, key=lambda tup: tup[1][0], reverse=True)
-    # srt_xcorrs = sorted(corrs, key=lambda tup: tup[1][1], reverse=True)
-    srt_corrs = sorted(corrs, key=lambda tup: tup[1][0], reverse=True)
-    srt_xcorrs = sorted(corrs, key=lambda tup: tup[1][0], reverse=False)
+    # tup[1][0]: A symbols average correlation
+    # tup[1][1]: A symbols percentage of uncorrelated data
+    # tup[1][2]: A symbols cointegration measure
+    srt_corrs = sorted(corrs, key=lambda tup: tup[1][2], reverse=True)
+    srt_xcorrs = sorted(corrs, key=lambda tup: tup[1][2], reverse=False)
+
     # For each symbol, get the top 10 correlations
     item_cnt = len(sym_dpps)
     i = 0
@@ -1856,7 +1893,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
             if target_sym.orig_data is not None:
                 len_ = len(target_sym.orig_data)
             logger.info(
-                f"2: Symbol target:[{target_sym.ticker}] [{len_}] has less than {min_data_points} data points. Wont calculate correlations.")
+                f"2: Symbol target:[{target_sym.ticker} {target_sym.period}] [{len_}] has less than {min_data_points} data points. Wont calculate correlations.")
             continue
 
         top10corr = []

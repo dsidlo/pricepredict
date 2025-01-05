@@ -1181,10 +1181,17 @@ class Test_PricePredict(TestCase):
                     'uncorrelated_days': 329,
                     'pct_corr': 0.6723107569721115,
                     'pct_uncorr': 0.32768924302788843,
-                    'pearson_corr': 0.34496343125631956,
+                    'pearson_raw_corr': 0.7977356398756404,
+                    'pearson_nrm_corr': 0.34496343125631956,
                     'spearman_corr': 0.34496343125631995,
                     'kendall_corr': 0.34496343125632,
-                    'avg_corr': 0.3449634312563199
+                    'avg_corr': 0.45815648341115,
+                    'coint_test': {'is_cointegrated': False,
+                                   'coint_measure': -2.0149305301276197,
+                                   't_stat': -1.417836901303577,
+                                   'p_val': 0.7913338658535446,
+                                   'crit_val': [-3.907392469311905, -3.3422286067719074, -3.048681218209777]
+                                   }
                     }
         self.assertEqual(exp_dict, ret_dict, f"exp_dict[{exp_dict}] does not match ret_dict[{ret_dict}]")
 
@@ -1198,10 +1205,17 @@ class Test_PricePredict(TestCase):
                     'uncorrelated_days': 16,
                     'pct_corr': 0.673469387755102,
                     'pct_uncorr': 0.32653061224489793,
-                    'pearson_corr': 0.34233931937116724,
+                    'pearson_raw_corr': 0.9089739104906921,
+                    'pearson_nrm_corr': 0.34233931937116724,
                     'spearman_corr': 0.3423393193711671,
                     'kendall_corr': 0.34233931937116713,
-                    'avg_corr': 0.3423393193711671
+                    'avg_corr': 0.48399796715104837,
+                    'coint_test': {'is_cointegrated': False,
+                                   'coint_measure': -0.6538417806652399,
+                                   't_stat': -2.9260016336866115,
+                                   'p_val': 0.1288591013147209,
+                                   'crit_val': [-4.139156232638889, -3.4663851215277774, -3.1339888888888887]
+                                   }
                     }
         self.assertEqual(exp_dict, ret_dict, f"exp_dict[{exp_dict}] does not match ret_dict[{ret_dict}]")
 
@@ -1215,10 +1229,17 @@ class Test_PricePredict(TestCase):
                     'uncorrelated_days': 2,
                     'pct_corr': 0.6666666666666666,
                     'pct_uncorr': 0.3333333333333333,
-                    'pearson_corr': 0.4472135954999579,
+                    'pearson_raw_corr': -0.7188202902103971,
+                    'pearson_nrm_corr': 0.4472135954999579,
                     'spearman_corr': 0.4472135954999579,
                     'kendall_corr': 0.4472135954999579,
-                    'avg_corr': 0.4472135954999579
+                    'avg_corr': 0.1557051240723692,
+                    'coint_test': {'is_cointegrated': False,
+                                   'coint_measure': -5.420153333333334,
+                                   't_stat': 0.0,
+                                   'p_val': 0.9859002580259643,
+                                   'crit_val': [-7.4279, -4.83107, -4.0014899999999995]
+                                   }
                     }
         self.assertEqual(exp_dict, ret_dict, f"exp_dict[{exp_dict}] does not match ret_dict[{ret_dict}]")
 

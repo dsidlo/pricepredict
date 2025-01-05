@@ -63,6 +63,7 @@ from typing import Any, Dict, List, Optional, Union
 from groq import Groq
 from bayes_opt import BayesianOptimization
 from silence_tensorflow import silence_tensorflow
+from statsmodels.tsa.stattools import coint
 
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
@@ -309,8 +310,8 @@ class PricePredict():
         self.seasonal_dec = None          # The seasonal decomposition
         self.keras_log = keras_log        # The keras log file
         self.keras_verbosity = keras_verbosity  # The keras verbosity level
-        self.cached_train_data = DataCache      # Cached training data
-        self.cached_pred_data = DataCache       # Cached prediction data
+        self.cached_train_data = DataCache()    # Cached training data
+        self.cached_pred_data = DataCache()     # Cached prediction data
         # Analitics...
         self.last_analysis = None         # The last analysis
         self.preds_path = None            # The path to the predictions file
@@ -325,7 +326,7 @@ class PricePredict():
         self.sentiment_json = {}          # The sentiment as json
         self.sentiment_text = ''          # The sentiment as text
         self.yf_sleep = yf_sleep          # The sleep time for yfinance requests
-        self.yf_cached = True            # Using the yfinance_cache
+        self.yf_cached = False            # Using the yfinance_cache
         self.yf = None
 
         # Create a logger for this object.
@@ -393,6 +394,10 @@ class PricePredict():
         :param ticker:
         :return:
         """
+        if self.orig_data is not None and self.ticker_data is not None:
+            # Assume that the ticker is valid if we already have data.
+            return self.ticker_data
+
         if 'Test-' in ticker:
             # Remove the 'Test-' from the symbol.
             # Special case for unit testing.
@@ -2444,28 +2449,48 @@ class PricePredict():
 
         # Get up days vs down days
         close_col = 'Close'
+        self_closes = self_data[close_col]
+        self_closes = self_closes.bfill().ffill()
         if close_col not in self_data.columns:
             close_col = 'Adj Close'
         self_trends = [1 if self_data[close_col].iloc[i] > self_data['Open'].iloc[i] else -1 for i in range(len(self_data))]
         close_col = 'Close'
+        ppo_closes = ppo_data[close_col]
+        ppo_closes = ppo_closes.bfill().ffill()
         if close_col not in ppo_data.columns:
             close_col = 'Adj Close'
         ppo_trends = [1 if ppo_data[close_col].iloc[i] > ppo_data['Open'].iloc[i] else -1 for i in range(len(ppo_data))]
 
-        # Calculate the correlation
+        """
+         Calculate the correlations:
+            1. Pearson: Calculate Pearson correlations using raw closing pricess and normalized closing prices.
+            2. Spearman: Calculate Spearman correlations trands.
+            3. Kendall: Calculate Kendall correlations trands.   
+        """
         try:
             corr_list = [self_trends[i] + ppo_trends[i] for i in range(len(self_trends))]
             # Concatinage self_trends with ppo_trends into one dataframe whose columns are stock_a and stock_b
-            corr_df = pd.DataFrame({'stock_a': self_trends, 'stock_b': ppo_trends})
-            normalized_df = (corr_df - corr_df.mean()) / corr_df.std()
+            corr_trends_df = pd.DataFrame({'stock_a': self_trends, 'stock_b': ppo_trends})
+            corr_close_df = pd.DataFrame({'stock_a': self_closes, 'stock_b': ppo_closes})
+            corr_close_df = corr_close_df.bfill().ffill()
+            normed_close_df = (corr_trends_df - corr_trends_df.mean()) / corr_trends_df.std()
             # Createa a correlation matrix
-            pearson_corr_matrix = normalized_df.corr(method='pearson')
-            spearman_corr_matrix = corr_df.corr(method='spearman')
-            kendall_corr_matrix = corr_df.corr(method='kendall')
+            pearson_corr_raw_matrix = corr_close_df.corr(method='pearson')
+            pearson_corr_nrm_matrix = normed_close_df.corr(method='pearson')
+            spearman_corr_matrix = corr_trends_df.corr(method='spearman')
+            kendall_corr_matrix = corr_trends_df.corr(method='kendall')
             # Get the correlation values
-            pearson_corr = pearson_corr_matrix.loc['stock_a']['stock_b']
+            pearson_raw_corr = pearson_corr_raw_matrix.loc['stock_a']['stock_b']
+            pearson_nrm_corr = pearson_corr_nrm_matrix.loc['stock_a']['stock_b']
             spearman_corr = spearman_corr_matrix.loc['stock_a']['stock_b']
             kendall_corr = kendall_corr_matrix.loc['stock_a']['stock_b']
+            coint_test = coint(self_closes, ppo_closes)
+            # If this number is zero or greater, the two series are cointegrated.
+            coint_measure = np.mean(coint_test[2]) - coint_test[0]
+            is_cointegrated = False
+            if coint_measure >= 0:
+                is_cointegrated = True
+            coint_dict = {'is_cointegrated': is_cointegrated, 'coint_measure': coint_measure, 't_stat': coint_test[0], 'p_val': coint_test[1], 'crit_val': list(coint_test[2])}
         except Exception as e:
             self.logger.error(f"Error: {e}")
             self.logger.error(f"self.ticker:{self.ticker}-len:{len(self_trends)} ppo.ticker:{ppo.ticker}-len:{len(ppo_trends.shape)}")
@@ -2483,10 +2508,13 @@ class PricePredict():
                     'uncorrelated_days': uncorrelated_days,
                     'pct_corr': pct_corr,
                     'pct_uncorr': pct_uncorr,
-                    'pearson_corr': pearson_corr,
+                    'pearson_raw_corr': pearson_raw_corr,
+                    'pearson_nrm_corr': pearson_nrm_corr,
                     'spearman_corr': spearman_corr,
                     'kendall_corr': kendall_corr,
-                    'avg_corr': (pearson_corr + spearman_corr + kendall_corr) / 3}
+                    'avg_corr': (pearson_raw_corr + pearson_nrm_corr + spearman_corr + kendall_corr) / 4,
+                    'coint_test': coint_dict,
+                    }
 
         return ret_dict
 
