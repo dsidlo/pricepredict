@@ -1618,7 +1618,7 @@ def task_train_predict_report(symbol_, dpp, added_syms=None,
         force_training = True
     if force_training or dpp.last_analysis is None or dpp.model is None:
         logger.info(f"Training and predicting for {symbol_}...")
-        dd = dpp.cached_train_data.get_item('dates_data')
+        dd = dpp.cached_train_data.dates_data
         dpp.cached_train_predict_report(force_training=True)
         logger.info(f"Completed training and predicting for {symbol_}...")
     else:

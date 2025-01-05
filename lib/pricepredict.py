@@ -38,6 +38,7 @@ import jsonify
 import pydantic
 
 from dataclasses import dataclass
+from decimal import Decimal
 from io import StringIO
 from ipywidgets import Output
 from keras.callbacks import History
@@ -84,84 +85,25 @@ and enough data to fill have data for any added technical indicators.
 """
 
 
-# -------------------------------------------------
-# Define the Cache class using Pydantic's BaseModel
-# -------------------------------------------------
-class DataCache(BaseModel):
-    items: Dict[str, Union[str, int, float, List[Any], Dict[str, Any]]] = Field(default_factory=dict)
-
-    # Method to set a cache item
-    def set_item(self, key: str, value: Union[str, int, float, List[Any], Dict[str, Any]]) -> None:
-        set_value = None
-        if str(type(value)) == "<class 'numpy.ndarray'>":
-            if (str(type(value[0])) == "<class 'numpy.ndarray'>"
-                    and str(type(value[0][0])) == "<class 'numpy.float64'>"):
-                # 2D np.array: Convert the 3D np.array value into a json serializable format.
-                # self.data_scaled,y
-                set_value = json.dumps(value.tolist())
-            if (str(type(value[0])) == "<class 'numpy.ndarray'>"
-                    and str(type(value[0][0])) == "<class 'numpy.ndarray'>"
-                    and str(type(value[0][0][0])) == "<class 'numpy.float64'>"):
-                # 3D np.array: Convert the 3D np.array value into a json serializable format.
-                # self.X
-                set_value = json.dumps(value.tolist())
-        else:
-            set_value = value
-        self.items[key] = set_value
-
-    # Method to get a cache item
-    def get_item(self, key: str) -> Optional[Union[str, int, float, List[Any], Dict[str, Any]]]:
-        ret_val = self.items.get(key)
-        if str(type(ret_val)) == "<class 'str'>":
-            if re.match(r'^\[{2,3}([0-9\.\-e\]+),\s([0-9\.\-e]+),\s.*$', ret_val) is not None:
-                # 2D np.array: Convert the 3D np.array value into a json serializable format.
-                # self.data_scaled
-                # 3D np.array: Restore the value of a 3D numpy array from a json serializable format.
-                # self.X,y
-                ret_val = np.array(json.loads(ret_val))
-        return ret_val
-
-    # Method to invalidate a cache item
-    def invalidate_item(self, key: str) -> None:
-        if key in self.items:
-            del self.items[key]
-
-    # Method to clear all cache items
-    def clear_cache(self) -> None:
-        self.items.clear()
-
-@dataclass
-class dgsDataClass():
+class DataCache():
     """
-    dgsDataClass Simple Class
+    DataCache Simple Properties only Class
+    Moved away from pydantic to eliminate issues with pickling.
     """
-    symbol: str
-    dataStart: str
-    dataEnd: str
-    period: str
-    data: str
-    feature_cnt: int
-    data_scaled: str
-    target_cnt: int
-    dates_data: str
-    X: str
-    yL: str
+    def __init__(self):
+        self.symbol: str = ''
+        self.dataStart: str = ''
+        self.dataEnd: str = ''
+        self.period: str = ''
+        self.data: str = ''
+        self.feature_cnt: int = None
+        self.data_scaled: list[Decimal] = []
+        self.target_cnt: int = None
+        self.dates_data: str = ''
+        self.split_pcnt: Decimal = None
+        self.X: list[Decimal] = []
+        self.y: list[Decimal] = []
 
-    def set_item(self, key: str, value: Union[str, int, float, List[Any], Dict[str, Any]]) -> None:
-        self.items[key] = value
-
-    # Method to get a cache item
-    def get_item(self, key: str) -> Optional[Union[str, int, float, List[Any], Dict[str, Any]]]:
-        return self.items.get(key)
-
-    # Method to invalidate a cache item
-    def invalidate_item(self, key: str) -> None:
-        if key in self.items:
-            del self.items[key]
-
-    # Method to clear all cache items
-    def clear_cache(self) -> None:
-        self.items.clear()
 
 # ================================
 # This is the PricePredict class.
@@ -965,21 +907,36 @@ class PricePredict():
         str_datesData = pd.Series(str_datesData)
 
         # Cache the data
+        # training_cache = DataCache()
+        # training_cache.set_item('symbol', symbol if symbol is not None else '')
+        # training_cache.set_item('dateStart', dateStart_ if dateStart_ is not None else '')
+        # training_cache.set_item('dateEnd', dateEnd_ if dateEnd_ is not None else '')
+        # training_cache.set_item('period', period if period is not None else '')
+        # tc_orig_data = self.orig_data.copy(deep=True)
+        # tc_orig_data.reset_index(inplace=True)
+        # tc_orig_data_str = tc_orig_data.to_json()
+        # training_cache.set_item('data', tc_orig_data_str if tc_orig_data_str is not None else '{}')
+        # training_cache.set_item('feature_cnt', self.features)
+        # training_cache.set_item('data_scaled', list(self.data_scaled))
+        # training_cache.set_item('target_cnt', self.targets)
+        # training_cache.set_item('dates_data', str_datesData.to_json())
+        # training_cache.set_item('X', list(self.X))
+        # training_cache.set_item('y', list(self.y))
         training_cache = DataCache()
-        training_cache.set_item('symbol', symbol if symbol is not None else '')
-        training_cache.set_item('dateStart', dateStart_ if dateStart_ is not None else '')
-        training_cache.set_item('dateEnd', dateEnd_ if dateEnd_ is not None else '')
-        training_cache.set_item('period', period if period is not None else '')
+        training_cache.symbol = symbol if symbol is not None else ''
+        training_cache.dateStart = dateStart_ if dateStart_ is not None else ''
+        training_cache.dateEnd = dateEnd_ if dateEnd_ is not None else ''
+        training_cache.period = period if period is not None else ''
         tc_orig_data = self.orig_data.copy(deep=True)
         tc_orig_data.reset_index(inplace=True)
         tc_orig_data_str = tc_orig_data.to_json()
-        training_cache.set_item('data', tc_orig_data_str if tc_orig_data_str is not None else '{}')
-        training_cache.set_item('feature_cnt', self.features)
-        training_cache.set_item('data_scaled', list(self.data_scaled))
-        training_cache.set_item('target_cnt', self.targets)
-        training_cache.set_item('dates_data', str_datesData.to_json())
-        training_cache.set_item('X', list(self.X))
-        training_cache.set_item('y', list(self.y))
+        training_cache.data = tc_orig_data_str if tc_orig_data_str is not None else '{}'
+        training_cache.feature_cnt = self.features
+        training_cache.data_scaled = list(self.data_scaled)
+        training_cache.target_cnt = self.targets
+        training_cache.dates_data = str_datesData.to_json()
+        training_cache.X = list(self.X)
+        training_cache.y = list(self.y)
 
         # Save the cached data into this object...
         self.cached_train_data = training_cache
@@ -1026,20 +983,20 @@ class PricePredict():
 
         # Cache the data
         prediction_cache = DataCache()
-        prediction_cache.set_item('symbol', symbol if symbol is not None else '')
-        prediction_cache.set_item('dateStart', dateStart_ if dateStart_ is not None else '')
-        prediction_cache.set_item('dateEnd', dateEnd_ if dateEnd_ is not None else '')
-        prediction_cache.set_item('period', period if period is not None else '')
+        prediction_cache.symbol = symbol if symbol is not None else ''
+        prediction_cache.dateStart = dateStart_ if dateStart_ is not None else ''
+        prediction_cache.dateEnd = dateEnd_ if dateEnd_ is not None else ''
+        prediction_cache.period = period if period is not None else ''
         tc_orig_data = self.orig_data.copy(deep=True)
         tc_orig_data.reset_index(inplace=True)
         tc_orig_data_str = tc_orig_data.to_json()
-        prediction_cache.set_item('data', tc_orig_data_str if tc_orig_data_str is not None else '{}')
-        prediction_cache.set_item('feature_cnt', self.features)
-        prediction_cache.set_item('data_scaled', list(self.data_scaled))
-        prediction_cache.set_item('target_cnt', self.targets)
-        prediction_cache.set_item('dates_data', str_datesData.to_json())
-        prediction_cache.set_item('X', list(X))
-        prediction_cache.set_item('y', list(y))
+        prediction_cache.data = tc_orig_data_str if tc_orig_data_str is not None else '{}'
+        prediction_cache.feature_cnt = self.features
+        prediction_cache.data_scaled = list(self.data_scaled)
+        prediction_cache.target_cnt = self.targets
+        prediction_cache.dates_data = str_datesData.to_json()
+        prediction_cache.X = list(X)
+        prediction_cache.y = list(y)
 
         # Save the cached data into this object...
         self.cached_pred_data = prediction_cache
@@ -1065,24 +1022,24 @@ class PricePredict():
             if tc is None:
                 self.logger.error(f"Error: No training data cached for {self.ticker}. Cached training data was expected.")
                 raise ValueError(f"Error: No training data cached for {self.ticker}. Cached training data was expected.")
-            self.ticker = tc.get_item('symbol')
-            self.dateStart_train = tc.get_item('dateStart')
-            self.dateEnd_train = tc.get_item('dateEnd')
-            self.period = tc.get_item('period')
-            self.split_pcnt = tc.get_item('split_pcnt')
-            self.orig_data = pd.read_json(StringIO(tc.get_item('data')))
-            self.features = tc.get_item('feature_cnt')
-            self.data_scaled = np.array(tc.get_item('data_scaled'))
-            self.targets = tc.get_item('target_cnt')
-            str_datesData = pd.Series(json.loads(tc.get_item('dates_data')))
+            self.ticker = tc.symbol
+            self.dateStart_train = tc.dateStart
+            self.dateEnd_train = tc.dateEnd
+            self.period = tc.period
+            self.split_pcnt = tc.split_pcnt
+            self.orig_data = pd.read_json(StringIO(tc.data))
+            self.features = tc.feature_cnt
+            self.data_scaled = np.array(tc.data_scaled)
+            self.targets = tc.target_cnt
+            str_datesdata = pd.Series(json.loads(tc.dates_data))
             if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
                 # Daily and Weekly data does not have hours and minutes.
-                self.date_data = pd.to_datetime(str_datesData, format='%Y-%m-%d')
+                self.date_data = pd.to_datetime(str_datesdata, format='%Y-%m-%d')
             else:
                 # Hours and minutes data includes date and time.
-                self.date_data = pd.to_datetime(str_datesData, format='%Y-%m-%d %H:%M:%S')
-            self.X = np.array(tc.get_item('X'))
-            self.y = np.array(tc.get_item('y'))
+                self.date_data = pd.to_datetime(str_datesdata, format='%Y-%m-%d %H:%M:%S')
+            self.X = np.array(tc.X)
+            self.y = np.array(tc.y)
             self.logger.info(f"Training [{self.ticker}] using cached data...")
             # Train a new model using the cached training data.
             model, y_pred, mse = self.train_model(self.X, self.y)
@@ -1107,22 +1064,22 @@ class PricePredict():
             self.logger.error(f"Exception Error: No prediction data cached for {self.ticker}. Cached prediction data was expected.")
             return
         try:
-            self.ticker = pc.get_item('symbol')
-            self.dateStart_pred = pc.get_item('dateStart')
-            self.dateEnd_pred = pc.get_item('dateEnd')
-            self.orig_data = pd.read_json(StringIO(pc.get_item('data')))
-            self.features = pc.get_item('feature_cnt')
-            self.data_scaled = np.array(pc.get_item('data_scaled'))
-            self.targets = pc.get_item('target_cnt')
-            str_datesData = pd.Series(json.loads(pc.get_item('dates_data')))
+            self.ticker = pc.symbol
+            self.dateStart_pred = pc.dateStart
+            self.dateEnd_pred = pc.dateEnd
+            self.orig_data = pd.read_json(StringIO(pc.data))
+            self.features = pc.feature_cnt
+            self.data_scaled = np.array(pc.data_scaled)
+            self.targets = pc.target_cnt
+            str_datesdata = pd.Series(json.loads(pc.dates_data))
             if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
                 # Daily and Weekly data does not have hours and minutes.
-                self.date_data = pd.to_datetime(str_datesData, format='%Y-%m-%d')
+                self.date_data = pd.to_datetime(str_datesdata, format='%Y-%m-%d')
             else:
                 # Hours and minutes data includes date and time.
-                self.date_data = pd.to_datetime(str_datesData, format='%Y-%m-%d %H:%M:%S')
-            self.X = np.array(pc.get_item('X'))
-            self.y = np.array(pc.get_item('y'))
+                self.date_data = pd.to_datetime(str_datesdata, format='%Y-%m-%d %H:%M:%S')
+            self.X = np.array(pc.X)
+            self.y = np.array(pc.y)
         except Exception as e:
             self.logger.error(f"Exception Error: Could not load prediction data: {e}")
             return

@@ -243,28 +243,28 @@ class Test_PricePredict(TestCase):
         self.assertIsNotNone(pp.cache_training_data, "pp.cache_training_data: is None, but should have data")
 
         tc = pp.cached_train_data
-        sym = tc.get_item('symbol')
+        sym = tc.symbol
         self.assertEqual(test_ticker, sym, f"pp.cache_training_data['symbol']: Wrong ticker [{sym}] expected [{test_ticker}]")
-        dateStart_train = tc.get_item('dateStart')
+        dateStart_train = tc.dateStart
         self.assertEqual(start_date, dateStart_train, f"pp.cache_training_data['dateStart']: Wrong date [{dateStart_train}] expected [{start_date}]")
-        dateEnd_train = tc.get_item('dateEnd')
+        dateEnd_train = tc.dateEnd
         self.assertEqual(end_date, dateEnd_train, f"pp.cache_training_data['dateEnd']: Wrong date [{dateEnd_train}] expected [{end_date}]")
-        period = tc.get_item('period')
+        period = tc.period
         self.assertEqual(pp.PeriodDaily, period, f"pp.cache_training_data['period']: Wrong period [{period}] expected [{pp.PeriodDaily}]")
-        orig_data = pd.read_json(tc.get_item('data'))
+        orig_data = pd.read_json(tc.data)
         self.assertGreater(len(orig_data), 1,"orig_data: Wrong length")
-        feature_cnt = tc.get_item('feature_cnt')
+        feature_cnt = tc.feature_cnt
         self.assertEqual(19, feature_cnt, f"pp.cache_training_data['feature_cnt']: Wrong count [{feature_cnt}] expected [19]")
-        data_scaled = np.array(tc.get_item('data_scaled'))
+        data_scaled = np.array(tc.data_scaled)
         self.assertGreater(len(data_scaled), 1, "data_scaled: Wrong length")
-        target_cnt = tc.get_item('target_cnt')
+        target_cnt = tc.target_cnt
         self.assertEqual(4, target_cnt, f"pp.cache_training_data['target_cnt']: Wrong count [{target_cnt}] expected [4]")
-        dates_data = pd.DataFrame(list(json.loads(tc.get_item('dates_data')).items()),
+        dates_data = pd.DataFrame(list(json.loads(tc.dates_data).items()),
                                   columns=['index', 'Date']).set_index('index')
         self.assertGreater( len(dates_data), 1, "dates_data: Wrong length")
-        X = np.array(tc.get_item('X'))
+        X = np.array(tc.X)
         self.assertGreater(len(X), 1, "X: Wrong length")
-        y = np.array(tc.get_item('y'))
+        y = np.array(tc.y)
         self.assertGreater(len(y), 1, "y: Wrong length")
 
         # TODO: Add a test for the existence of the seasonality chart
@@ -296,28 +296,28 @@ class Test_PricePredict(TestCase):
         pp.cache_prediction_data(ticker, start_date, end_date, period)
         self.assertIsNotNone(pp.cache_prediction_data, "pp.cache_pred_data: is None, but should have data")
         pc = pp.cached_pred_data
-        sym = pc.get_item('symbol')
+        sym = pc.symbol
         self.assertEqual(ticker, sym, f"pp.cache_training_data['symbol']: Wrong ticker [{sym}] expected [{ticker}]")
-        dateStart_train = pc.get_item('dateStart')
+        dateStart_train = pc.dateStart
         self.assertEqual(start_date, dateStart_train, f"pp.cache_training_data['dateStart']: Wrong date [{dateStart_train}] expected [{start_date}]")
-        dateEnd_train = pc.get_item('dateEnd')
+        dateEnd_train = pc.dateEnd
         self.assertEqual(end_date, dateEnd_train, f"pp.cache_training_data['dateEnd']: Wrong date [{dateEnd_train}] expected [{end_date}]")
-        period = pc.get_item('period')
+        period = pc.period
         self.assertEqual(pp.PeriodDaily, period, f"pp.cache_training_data['period']: Wrong period [{period}] expected [{pp.PeriodDaily}]")
-        orig_data = pd.read_json(pc.get_item('data'))
+        orig_data = pd.read_json(pc.data)
         self.assertGreater(len(orig_data), 1,"orig_data: Wrong length")
-        feature_cnt = pc.get_item('feature_cnt')
+        feature_cnt = pc.feature_cnt
         self.assertEqual(19, feature_cnt, f"pp.cache_training_data['feature_cnt']: Wrong count [{feature_cnt}] expected [19]")
-        data_scaled = np.array(pc.get_item('data_scaled'))
+        data_scaled = np.array(pc.data_scaled)
         self.assertGreater(len(data_scaled), 1, "data_scaled: Wrong length")
-        target_cnt = pc.get_item('target_cnt')
+        target_cnt = pc.target_cnt
         self.assertEqual(4, target_cnt, f"pp.cache_training_data['target_cnt']: Wrong count [{target_cnt}] expected [4]")
-        dates_data = pd.DataFrame(list(json.loads(pc.get_item('dates_data')).items()),
+        dates_data = pd.DataFrame(list(json.loads(pc.dates_data).items()),
                                   columns=['index', 'Date']).set_index('index')
         self.assertGreater( len(dates_data), 1, "dates_data: Wrong length")
-        X = np.array(pc.get_item('X'))
+        X = np.array(pc.X)
         self.assertGreater(len(X), 1, "X: Wrong length")
-        y = np.array(pc.get_item('y'))
+        y = np.array(pc.y)
         self.assertGreater(len(y), 1, "y: Wrong length")
 
         pass
