@@ -1902,7 +1902,8 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
             if j > 10:
                 break
             if tsym == ssym[0][0]:
-                top10corr.append((ssym[0][1], ssym[1][0]))
+                # (<other_sym>, <coint_measure>
+                top10corr.append((ssym[0][1], ssym[1][2]))
                 j += 1
         target_sym.top10corr = top10corr
 
@@ -1912,7 +1913,8 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
             if j > 10:
                 break
             if tsym == ssym[0][0]:
-                top10xcorr.append((ssym[0][1], ssym[1][1]))
+                # (<other_sym>, <coint_measure>
+                top10xcorr.append((ssym[0][1], ssym[1][2]))
                 j += 1
         target_sym.top10xcorr = top10xcorr
 
