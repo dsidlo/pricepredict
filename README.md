@@ -30,7 +30,7 @@ To use this class effectively, it is ideal to use a computer with an GPU that is
 
 ## Goals:
 
-* Create an Class for easing the creation of prediction modes for individual stocks and instruments. The class can be used independently so that it can be used in a service in whhich it can be automatically maintained and where the service can be used to make predictions and perform analitics across a large number of instruments.
+* Create an Class for easing the creation of prediction models for individual stocks and instruments. The class can be used independently so that it can be used in a service in which it can be automatically maintained and where the service can be used to make predictions and perform analytics across a large number of instruments.
 * Create a web-based UI for stock price prediction, stock analysis, pairs trading analysis.
 * Make it easy to find Swing and Pairs Trading opportunities.
 

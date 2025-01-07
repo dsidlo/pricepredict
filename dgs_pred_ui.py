@@ -1862,8 +1862,8 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
                     len_ = None
                     if source_sym.orig_data is not None:
                         len_ = len(source_sym.orig_data)
-                    logger.info(
-                        f"1: Symbol source:[{ssym} {source_sym.period}] [{len_}] has less than {min_data_points} data points. Wont calculate correlations.")
+                    logger.info(f"1: Symbol source:[{ssym} {source_sym.period}] [{len_}] has less than {min_data_points}"
+                                + " data points. Wont calculate correlations.")
                     continue
 
                 corr = target_sym.periodic_correlation(source_sym)
@@ -1935,7 +1935,6 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
             if j > 10:
                 break
             if tsym == ssym[indx_sym][indx_trg_sym]:
-                # (<other_sym>, <coint_measure>
                 top10coint.append((ssym[indx_sym][indx_src_sym], ssym[indx_corr_vals][indx_coint_p_val]))
                 j += 1
         target_sym.top10coint = top10coint
@@ -1944,12 +1943,9 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
         top10corr = []
         j = 0
         for ssym in srt_corrs:
-            # ssym[][x]
-            indx_avg_corr = 1
             if j > 10:
                 break
             if tsym == ssym[indx_sym][indx_trg_sym]:
-                # (<other_sym>, <coint_measure>
                 top10corr.append((ssym[indx_sym][indx_src_sym], ssym[indx_corr_vals][indx_avg_corr]))
                 j += 1
         target_sym.top10corr = top10corr
@@ -1958,12 +1954,9 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
         top10xcorr = []
         j = 0
         for ssym in srt_xcorrs:
-            # ssym[][x]
-            indx_avg_corr = 1
             if j > 10:
                 break
             if tsym == ssym[indx_sym][indx_trg_sym]:
-                # (<other_sym>, <coint_measure>
                 top10xcorr.append((ssym[indx_sym][indx_src_sym], ssym[indx_corr_vals][indx_avg_corr]))
                 j += 1
         target_sym.top10xcorr = top10xcorr
