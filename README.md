@@ -26,13 +26,13 @@ The core class that drives this project is the **PriceePredict class**. This cla
 To understand its use, see examples of its use in it's unit Tests (Test_PricePrediction.py). 
 
 ### Note
-To use this class effectively, it is ideal to use a computer with a GPU that is supported by tensorflow. This will speed up the training and prediction process significantly.
+To use this class effectively, it is ideal to use a computer with an GPU that is supported by tensorflow (Nvidia). This will speed up the training and prediction process significantly.
 
 ## Goals:
 
-    - Create an Class for easing the creation of prediction modes for individual stocks and instruments. The class can be used independently so that it can be used in a service in whhich it can be automatically maintained and where the service can be used to make predictions and perform analitics across a large number of instruments.
-    - Create a web-based UI for stock price prediction, stock analysis, pairs trading analysis.
-    - Make it easy to find Swing and Pairs Trading opportunities.
+* Create an Class for easing the creation of prediction modes for individual stocks and instruments. The class can be used independently so that it can be used in a service in whhich it can be automatically maintained and where the service can be used to make predictions and perform analitics across a large number of instruments.
+* Create a web-based UI for stock price prediction, stock analysis, pairs trading analysis.
+* Make it easy to find Swing and Pairs Trading opportunities.
 
 ## Current state...
 

@@ -263,6 +263,7 @@ class PricePredict():
         self.season_rank = None           # The rank of the seasonal decomposition
         self.season_corr = None           # The correlation of the seasonal decomposition
         self.pred_strength = None         # The strength of the prediction
+        self.top10coint = None            # The top 10 cointegrations dict {'<Sym>': <coint_measure>}
         self.top10corr = None             # The top 10 correlations dict {'<Sym>': <Corr%>}
         self.top10xcorr = None            # The top 10 cross correlations dict {'<Sym>': <xCorr%>}
         self.sentiment_json = {}          # The sentiment as json
@@ -2441,11 +2442,14 @@ class PricePredict():
             pearson_nrm_corr = pearson_corr_nrm_matrix.loc['stock_a']['stock_b']
             spearman_corr = spearman_corr_matrix.loc['stock_a']['stock_b']
             kendall_corr = kendall_corr_matrix.loc['stock_a']['stock_b']
+            # Coint() returns coint_test(t-stat, p-value, [crit_values])
             coint_test = coint(self_closes, ppo_closes)
             # If this number is zero or greater, the two series are cointegrated.
             coint_measure = np.mean(coint_test[2]) - coint_test[0]
+            coint_measure = coint_test[1]
             is_cointegrated = False
-            if coint_measure >= 0:
+            # if coint_measure >= 0:
+            if coint_measure < 0.05:
                 is_cointegrated = True
             coint_dict = {'is_cointegrated': is_cointegrated, 'coint_measure': coint_measure, 't_stat': coint_test[0], 'p_val': coint_test[1], 'crit_val': list(coint_test[2])}
         except Exception as e:

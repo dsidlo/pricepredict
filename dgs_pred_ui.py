@@ -105,7 +105,7 @@ chart_dir = './charts/'
 preds_dir = './predictions/'
 
 import_cols_simple = 2
-import_cols_full = 10
+import_cols_full = 12
 
 # ======================================================================
 # Main Window ==========================================================
@@ -463,6 +463,7 @@ def merge_and_save(all_df_symbols, df_symbols):
             all_df_symbols.loc[idx] = [row.Symbol, row.LongName,
                                        row.Groups, row.Trend,
                                        row.WklyPrdStg, row.DlyPrdStg,
+                                       row.wTop10Coint, row.dTop10Coint,
                                        row.wTop10Corr, row.wTop10xCorr,
                                        row.dTop10Corr, row.dTop10xCorr]
         elif len(idx) == 0:
@@ -470,6 +471,7 @@ def merge_and_save(all_df_symbols, df_symbols):
             all_df_symbols.loc[len(all_df_symbols)] = [row.Symbol, row.LongName,
                                                        row.Groups, row.Trend,
                                                        row.WklyPrdStg, row.DlyPrdStg,
+                                                       row.wTop10Coint, row.dTop10Coint,
                                                        row.wTop10Corr, row.wTop10xCorr,
                                                        row.dTop10Corr, row.dTop10xCorr]
     all_df_symbols.sort_values("Symbol", inplace=True)
@@ -582,6 +584,7 @@ def filter_symbols():
             all_df_symbols.loc[len(all_df_symbols)] = [row.Symbol, row.LongName,
                                                        row.Groups, row.Trend,
                                                        row.WklyPrdStg, row.DlyPrdStg,
+                                                       row.wTop10Coint, row.wTop10xCoint,
                                                        row.wTop10Corr, row.wTop10xCorr,
                                                        row.dTop10Corr, row.dTop10xCorr]
         elif len(idx) == 1:
@@ -673,6 +676,7 @@ def import_symbols(st, exp_sym):
         df_imported_syms['Trend'] = ''
         df_imported_syms['WklyPrdStg'] = 0.0
         df_imported_syms['DlyPrdStg'] = 0.0
+        df_imported_syms['wTop10Coint'] = ''
         df_imported_syms['wTop10Corr'] = ''
         df_imported_syms['wTop10xCorr'] = ''
         df_imported_syms['dTop10Corr'] = ''
@@ -733,6 +737,7 @@ def add_new_symbols(st, exp_sym, syms):
                                         'LongName': long_name,
                                         'Groups': 'Added', 'Trend': '',
                                         'DlyPrdStg': [0.0], 'WklyPrdStg': [0.0],
+                                        'wTop10Coint': [''], 'wTop10xCoint': [''],
                                         'wTop10Corr': [''], 'wTop10xCorr': [''],
                                         'dTop10Corr': [''], 'dTop10xCorr': ['']})
                 # Add the symbol to the display DataFrame
@@ -969,18 +974,23 @@ def display_symbol_charts(interactive_charts=True):
             else:
                 pp = st.session_state[ss_SymDpps_d][img_sym]
                 expdr_corr = st.expander("**Correlations**", expanded=False)
-                col1, col2 = expdr_corr.columns(2)
+                col1, col2, col3 = expdr_corr.columns(3)
 
-                col1.markdown('**Top 10 Correlated**')
-                df_to10corr = pd.DataFrame(data=pp.top10corr, columns=['Symbol', 'Correlation'])
+                col1.markdown('**Top 10 Cointegrated**')
+                df_to10coint = pd.DataFrame(data=pp.top10coint, columns=['Symbol', 'Coint PValue'])
+                styl_to10coint = df_to10coint.style.set_properties(**{'boarder': '2px solid #ccc'})
+                col1.table(styl_to10coint)
+
+                col2.markdown('**Top 10 Correlated**')
+                df_to10corr = pd.DataFrame(data=pp.top10corr, columns=['Symbol', 'Correlated'])
                 styl_to10corr = df_to10corr.style.set_properties(**{'boarder': '2px solid #ccc'})
-                col1.table(styl_to10corr)
+                col2.table(styl_to10corr)
                 # col1.table(pp.top10corr)
 
-                col2.markdown('**Top 10 X-Correlated**')
-                df_to10xcorr = pd.DataFrame(data=pp.top10xcorr, columns=['Symbol', 'Correlation'])
+                col3.markdown('**Top 10 X-Correlated**')
+                df_to10xcorr = pd.DataFrame(data=pp.top10xcorr, columns=['Symbol', 'xCorrelated'])
                 styl_to10xcorr = df_to10xcorr.style.set_properties(**{'boarder': '2px solid #ccc'})
-                col2.table(styl_to10xcorr)
+                col3.table(styl_to10xcorr)
                 # col2.table(pp.top10xcorr)
 
                 if img_sym in st.session_state[ss_SymDpps_d]:
@@ -1114,8 +1124,7 @@ def analyze_symbols(st, prog_bar, df_symbols,
                 ppw.orig_data = None
             if (ppw.orig_data is None
                 or row.Trend == ''
-                or row.WklyPrdStg == 0.0
-                or row.wTop10Corr == 0.0):
+                or row.WklyPrdStg == 0.0):
                 # Get the datetime of 5 days ago
                 five_days_ago = datetime.now() - timedelta(days=7)
                 # This will force an update of the ppw object
@@ -1151,8 +1160,7 @@ def analyze_symbols(st, prog_bar, df_symbols,
                 ppd.orig_data = None
             if (ppd.orig_data is None
                 or row.Trend == ''
-                or row.WklyPrdStg == 0.0
-                or row.wTop10Corr == 0.0):
+                or row.WklyPrdStg == 0.0):
                 # Get the datetime of 5 days ago
                 five_days_ago = datetime.now() - timedelta(days=3)
                 # This will force an update of the ppd object
@@ -1418,7 +1426,7 @@ def sync_dpps_objects(st, prog_bar):
         i += 1
         if prog_bar is not None:
             # Update the progress bar
-            prog_bar.progress(int(i / total_syms * 100), f"Validating Daily Object: {sym} ({i}/{total_syms})")
+            prog_bar.progress(int(i / total_syms * 100), f"Validating Daily Objects: {sym} ({i}/{total_syms})")
 
     i = 0
     total_syms = len(sym_dpp_d)
@@ -1443,7 +1451,7 @@ def sync_dpps_objects(st, prog_bar):
         i += 1
         if prog_bar is not None:
             # Update the progress bar
-            prog_bar.progress(int(i / total_syms * 100), f"Validating Weekly Object: {sym} ({i}/{total_syms})")
+            prog_bar.progress(int(i / total_syms * 100), f"Validating Weekly Objects: {sym} ({i}/{total_syms})")
 
     if len(object_removed) > 0:
         logger.info(f'Deleted {len(object_removed)} Daily PricePredict objects: [{','.join(object_removed)}]')
@@ -1710,6 +1718,7 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
             if prd_strg is None:
                 prd_strg = 0
             all_df_symbols.loc[indx, 'DlyPrdStg'] = f'{prd_strg:>,.4f}'
+            all_df_symbols.loc[indx, 'dTop10Coint'] = json.dumps(pp.top10coint)
             all_df_symbols.loc[indx, 'dTop10Corr'] = json.dumps(pp.top10corr)
             all_df_symbols.loc[indx, 'dTop10xCorr'] = json.dumps(pp.top10xcorr)
 
@@ -1757,6 +1766,7 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
             if prd_strg is None:
                 prd_strg = 0
             all_df_symbols.loc[indx, 'WklyPrdStg'] = f'{prd_strg:>,.4f}'
+            all_df_symbols.loc[indx, 'wTop10Coint'] = json.dumps(pp.top10coint)
             all_df_symbols.loc[indx, 'wTop10Corr'] = json.dumps(pp.top10corr)
             all_df_symbols.loc[indx, 'wTop10xCorr'] = json.dumps(pp.top10xcorr)
 
@@ -1772,8 +1782,10 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
             df_symbols.loc[indx1, 'Trend'] = all_df_symbols.loc[indx2, 'Trend']
             df_symbols.loc[indx1, 'DlyPrdStg'] = all_df_symbols.loc[indx2, 'DlyPrdStg']
             df_symbols.loc[indx1, 'WklyPrdStg'] = all_df_symbols.loc[indx2, 'WklyPrdStg']
+            df_symbols.loc[indx1, 'dTop10Coint'] = all_df_symbols.loc[indx2, 'dTop10Coint']
             df_symbols.loc[indx1, 'dTop10Corr'] = all_df_symbols.loc[indx2, 'dTop10Corr']
             df_symbols.loc[indx1, 'dTop10xCorr'] = all_df_symbols.loc[indx2, 'dTop10xCorr']
+            df_symbols.loc[indx1, 'wTop10Coint'] = all_df_symbols.loc[indx2, 'wTop10Coint']
             df_symbols.loc[indx1, 'wTop10Corr'] = all_df_symbols.loc[indx2, 'wTop10Corr']
             df_symbols.loc[indx1, 'wTop10xCorr'] = all_df_symbols.loc[indx2, 'wTop10xCorr']
 
@@ -1783,7 +1795,11 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
 
 
 def sym_correlations(prd, st, sym_dpps, prog_bar):
-
+    """
+    This procedure performs correlation analysis for each PricePredict object
+    against all other PricePredict objects amd update the PricePredict object's
+    top10corr, top10xcorr, and top10coint properties.
+    """
     logger.debug(f"Calculating Period [{prd}] Correlations...")
 
     # Minimum number of data points required for correlation calculations
@@ -1866,14 +1882,29 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
 
         corrs.append((ts, (round(sym_corr[ts]['avg_corr'], 5),
                            round(sym_corr[ts]['pct_uncorr'], 5),
-                           round(sym_corr[ts]['coint_test']['coint_measure'], 5))))
+                           round(sym_corr[ts]['coint_test']['coint_measure'], 5),
+                           round(sym_corr[ts]['coint_test']['p_val'], 5),)))
+
+    # corrs[x] is the same as tup below
+    # tup[x]
+    indx_sym = 0
+    indx_corr_vals = 1
+    # tup[indx_sym][x]
+    indx_trg_sym = 0
+    indx_src_sym = 1
+    # tup[indx_corr_vals][x]
+    indx_avg_corr = 0
+    indx_pct_uncorr = 1
+    indx_coint_measure = 2
+    indx_coint_p_val = 3
 
     # Sort the correlations by the pct_uncorr value
     # tup[1][0]: A symbols average correlation
     # tup[1][1]: A symbols percentage of uncorrelated data
-    # tup[1][2]: A symbols cointegration measure
-    srt_corrs = sorted(corrs, key=lambda tup: tup[1][2], reverse=True)
-    srt_xcorrs = sorted(corrs, key=lambda tup: tup[1][2], reverse=False)
+    # tup[1][2]: A symbols cointegration p-value
+    srt_coint = sorted(corrs, key=lambda tup: tup[indx_corr_vals][indx_coint_p_val], reverse=False)
+    srt_corrs = sorted(corrs, key=lambda tup: tup[indx_corr_vals][indx_avg_corr], reverse=True)
+    srt_xcorrs = sorted(corrs, key=lambda tup: tup[indx_corr_vals][indx_avg_corr], reverse=False)
 
     # For each symbol, get the top 10 correlations
     item_cnt = len(sym_dpps)
@@ -1896,25 +1927,44 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
                 f"2: Symbol target:[{target_sym.ticker} {target_sym.period}] [{len_}] has less than {min_data_points} data points. Wont calculate correlations.")
             continue
 
+        # Gather the top 10 cointegrated symbols for the target symbol
+        top10coint = []
+
+        j = 0
+        for ssym in srt_coint:
+            if j > 10:
+                break
+            if tsym == ssym[indx_sym][indx_trg_sym]:
+                # (<other_sym>, <coint_measure>
+                top10coint.append((ssym[indx_sym][indx_src_sym], ssym[indx_corr_vals][indx_coint_p_val]))
+                j += 1
+        target_sym.top10coint = top10coint
+
+        # Gather the top 10 correlated symbols for the target symbol
         top10corr = []
         j = 0
         for ssym in srt_corrs:
+            # ssym[][x]
+            indx_avg_corr = 1
             if j > 10:
                 break
-            if tsym == ssym[0][0]:
+            if tsym == ssym[indx_sym][indx_trg_sym]:
                 # (<other_sym>, <coint_measure>
-                top10corr.append((ssym[0][1], ssym[1][2]))
+                top10corr.append((ssym[indx_sym][indx_src_sym], ssym[indx_corr_vals][indx_avg_corr]))
                 j += 1
         target_sym.top10corr = top10corr
 
+        # Gather the top 10 uncorrelated symbols for the target symbol
         top10xcorr = []
         j = 0
         for ssym in srt_xcorrs:
+            # ssym[][x]
+            indx_avg_corr = 1
             if j > 10:
                 break
-            if tsym == ssym[0][0]:
+            if tsym == ssym[indx_sym][indx_trg_sym]:
                 # (<other_sym>, <coint_measure>
-                top10xcorr.append((ssym[0][1], ssym[1][2]))
+                top10xcorr.append((ssym[indx_sym][indx_src_sym], ssym[indx_corr_vals][indx_avg_corr]))
                 j += 1
         target_sym.top10xcorr = top10xcorr
 
