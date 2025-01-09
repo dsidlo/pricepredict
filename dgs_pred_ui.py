@@ -973,7 +973,7 @@ def display_symbol_charts(interactive_charts=True):
                 logger.error(f"Symbol [{img_sym}] not found in PricePredict objects")
             else:
                 pp = st.session_state[ss_SymDpps_d][img_sym]
-                expdr_corr = st.expander("**Correlations**", expanded=False)
+                expdr_corr = st.expander("**Correlations** (Coint PValues < 0.05 Good!)", expanded=False)
                 col1, col2, col3 = expdr_corr.columns(3)
 
                 col1.markdown('**Top 10 Cointegrated**')
