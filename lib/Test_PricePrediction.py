@@ -1176,23 +1176,23 @@ class Test_PricePredict(TestCase):
         self.assertIsNotNone(ret_dict, "periodic_correlation: Returned None")
         self.assertEqual(PricePredict.PeriodDaily, pp1.period, f"period[{pp1.period}]: Wrong period")
         self.assertEqual(PricePredict.PeriodDaily, pp2.period, f"pp2.period[{pp2.period}]: Wrong period")
-        exp_dict = {'total_days': 1004,
+        exp_dict = {'avg_corr': 0.45815648341115,
+                    'coint_test': {'coint_measure': 0.7913338658535446,
+                                   'crit_val': [-3.907392469311905,
+                                                -3.3422286067719074,
+                                                -3.048681218209777],
+                                   'is_cointegrated': False,
+                                   'p_val': 0.7913338658535446,
+                                   't_stat': -1.417836901303577},
                     'correlated_days': 675,
-                    'uncorrelated_days': 329,
+                    'kendall_corr': 0.34496343125632,
                     'pct_corr': 0.6723107569721115,
                     'pct_uncorr': 0.32768924302788843,
-                    'pearson_raw_corr': 0.7977356398756404,
                     'pearson_nrm_corr': 0.34496343125631956,
+                    'pearson_raw_corr': 0.7977356398756404,
                     'spearman_corr': 0.34496343125631995,
-                    'kendall_corr': 0.34496343125632,
-                    'avg_corr': 0.45815648341115,
-                    'coint_test': {'is_cointegrated': False,
-                                   'coint_measure': -2.0149305301276197,
-                                   't_stat': -1.417836901303577,
-                                   'p_val': 0.7913338658535446,
-                                   'crit_val': [-3.907392469311905, -3.3422286067719074, -3.048681218209777]
-                                   }
-                    }
+                    'total_days': 1004,
+                    'uncorrelated_days': 329}
         self.assertEqual(exp_dict, ret_dict, f"exp_dict[{exp_dict}] does not match ret_dict[{ret_dict}]")
 
         # Perform the correlation analysis for the last 50 days
@@ -1211,7 +1211,7 @@ class Test_PricePredict(TestCase):
                     'kendall_corr': 0.34233931937116713,
                     'avg_corr': 0.48399796715104837,
                     'coint_test': {'is_cointegrated': False,
-                                   'coint_measure': -0.6538417806652399,
+                                   'coint_measure': 0.1288591013147209,
                                    't_stat': -2.9260016336866115,
                                    'p_val': 0.1288591013147209,
                                    'crit_val': [-4.139156232638889, -3.4663851215277774, -3.1339888888888887]
@@ -1235,7 +1235,7 @@ class Test_PricePredict(TestCase):
                     'kendall_corr': 0.4472135954999579,
                     'avg_corr': 0.1557051240723692,
                     'coint_test': {'is_cointegrated': False,
-                                   'coint_measure': -5.420153333333334,
+                                   'coint_measure': 0.9859002580259643,
                                    't_stat': 0.0,
                                    'p_val': 0.9859002580259643,
                                    'crit_val': [-7.4279, -4.83107, -4.0014899999999995]

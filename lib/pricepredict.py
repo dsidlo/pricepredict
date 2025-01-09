@@ -1,4 +1,3 @@
-
 """
 Class: PricPredict
 
@@ -36,6 +35,8 @@ import statsmodels.api as sm
 import json
 import jsonify
 import pydantic
+import lzma
+import dill
 
 from dataclasses import dataclass
 from decimal import Decimal
@@ -90,6 +91,7 @@ class DataCache():
     DataCache Simple Properties only Class
     Moved away from pydantic to eliminate issues with pickling.
     """
+
     def __init__(self):
         self.symbol: str = ''
         self.dataStart: str = ''
@@ -142,28 +144,28 @@ class PricePredict():
                         Period1min: 420}
 
     def __init__(self,
-                 ticker='',                   # The ticker for the data
-                 model_dir='./models/',       # The directory where the model is saved
-                 chart_dir='./charts/',       # The directory where the charts are saved
+                 ticker='',  # The ticker for the data
+                 model_dir='./models/',  # The directory where the model is saved
+                 chart_dir='./charts/',  # The directory where the charts are saved
                  preds_dir='./predictions/',  # The directory where the predictions are saved
-                 period=PeriodDaily,          # The period for the data (D, W)
-                 back_candles=15,             # The number of candles to look back for each period.
-                 split_pcnt=0.8,              # The value for splitting data into training and testing.
-                 batch_size=30,               # The batch size for training the model.
-                 epochs=50,                   # The number of epochs for training the model.
-                 lstm_units=256,              # The current models units
-                 lstm_dropout=0.2,            # The current models dropout
-                 adam_learning_rate=0.035,    # The current models learning rate
-                 shuffle=True,                # Shuffle the data for training the model.
-                 val_split=0.1,               # The validation split used during training.
+                 period=PeriodDaily,  # The period for the data (D, W)
+                 back_candles=15,  # The number of candles to look back for each period.
+                 split_pcnt=0.8,  # The value for splitting data into training and testing.
+                 batch_size=30,  # The batch size for training the model.
+                 epochs=50,  # The number of epochs for training the model.
+                 lstm_units=256,  # The current models units
+                 lstm_dropout=0.2,  # The current models dropout
+                 adam_learning_rate=0.035,  # The current models learning rate
+                 shuffle=True,  # Shuffle the data for training the model.
+                 val_split=0.1,  # The validation split used during training.
                  keras_verbosity=0,
-                 verbose=True,                # Print debug information
-                 logger=None,                 # The logger for this object
-                 logger_file_path = None,     # The path to the log file
-                 log_level = None,            # The logging level
-                 force_training = False,      # Force training the model
-                 keras_log = 'PricePredict_keras.log',  # The keras log file
-                 yf_sleep=61,                 # The sleep time for yfinance requests
+                 verbose=True,  # Print debug information
+                 logger=None,  # The logger for this object
+                 logger_file_path=None,  # The path to the log file
+                 log_level=None,  # The logging level
+                 force_training=False,  # Force training the model
+                 keras_log='PricePredict_keras.log',  # The keras log file
+                 yf_sleep=61,  # The sleep time for yfinance requests
                  ):
         """
         Initialize the PricePredict class.
@@ -183,94 +185,97 @@ class PricePredict():
         :param verbose:
         :return PricePredict:   # An instance of the PricePredict class
         """
-        self.model_dir = model_dir        # The directory where the model is saved
-        self.model_path = ''              # The path to the current loaded model
-        self.preds_dir = preds_dir        # The directory where the predictions are saved
-        self.preds_path = ''              # The path to the current predictions
-        self.chart_dir = chart_dir        # The directory where the charts are saved
-        self.chart_path = ''              # The path to the current chart
-        self.seasonal_chart_path = ''     # The path to the seasonal decomposition chart
-        self.period = period              # The period for the data (D, W)
-        self.model = None                 # The current loaded model
-        self.bayes_best_loss = None       # The best loss from the bayesian optimization
-        self.bayes_best_model = None      # The best bayesian optimized model, temp holder.
-        self.bayes_opt_hypers = {}              # The optimized hyperparameters
-        self.lstm_units = lstm_units                    # The current models units
-        self.lstm_dropout = lstm_dropout                # The current models dropout
-        self.adam_learning_rate = adam_learning_rate    # The current models learning rate
-        self.scaler = None                # The current models scaler
-        self.Verbose = verbose            # Print debug information
-        self.ticker = ticker              # The ticker for the data
-        self.ticker_data = None           # The data for the ticker (Long Name, last price, etc.)
-        self.date_start = ''              # The start date for the data
-        self.date_end = ''                # The end date for the data
-        self.orig_data = None             # Save the originally downloaded data for later use.
-        self.unagg_data = None            # Save the unaggregated data for later use.
-        self.date_data = None             # Save the date data for later use.
-        self.aug_data = None              # Save the augmented data for later use.
-        self.features = None              # The number of features in the data
-        self.targets = None               # The number of targets (predictions) in the data
-        self.data_scaled = None           # Save the scaled data for later use.
+        self.model_dir = model_dir  # The directory where the model is saved
+        self.model_path = ''  # The path to the current loaded model
+        self.preds_dir = preds_dir  # The directory where the predictions are saved
+        self.preds_path = ''  # The path to the current predictions
+        self.chart_dir = chart_dir  # The directory where the charts are saved
+        self.chart_path = ''  # The path to the current chart
+        self.seasonal_chart_path = ''  # The path to the seasonal decomposition chart
+        self.period = period  # The period for the data (D, W)
+        self.model = None  # The current loaded model
+        self.bayes_best_loss = None  # The best loss from the bayesian optimization
+        self.bayes_best_model = None  # The best bayesian optimized model, temp holder.
+        self.bayes_opt_hypers = {}  # The optimized hyperparameters
+        self.lstm_units = lstm_units  # The current models units
+        self.lstm_dropout = lstm_dropout  # The current models dropout
+        self.adam_learning_rate = adam_learning_rate  # The current models learning rate
+        self.scaler = None  # The current models scaler
+        self.Verbose = verbose  # Print debug information
+        self.ticker = ticker  # The ticker for the data
+        self.ticker_data = None  # The data for the ticker (Long Name, last price, etc.)
+        self.date_start = ''  # The start date for the data
+        self.date_end = ''  # The end date for the data
+        self.orig_data = None  # Save the originally downloaded data for later use.
+        self.unagg_data = None  # Save the unaggregated data for later use.
+        self.date_data = None  # Save the date data for later use.
+        self.aug_data = None  # Save the augmented data for later use.
+        self.features = None  # The number of features in the data
+        self.targets = None  # The number of targets (predictions) in the data
+        self.data_scaled = None  # Save the scaled data for later use.
         self.force_training = force_training  # Force training the model
-        self.X = None                     # 3D array of training data.
-        self.y = None                     # Target values (Adj Close)
-        self.X_train = None               # Training data
-        self.X_test = None                # Test data
-        self.y_test = None                # Test data
-        self.y_test_closes = None         # Test data closes
-        self.y_train = None               # Training data
-        self.y_pred = None                # The prediction
-        self.y_pred_rescaled = None       # The rescaled prediction
-        self.mean_squared_error = None    # The mean squared error for the model
-        self.target_close = None          # The target close
-        self.target_high = None           # The target high
-        self.target_low = None            # The target low
-        self.pred = None                  # The predictions (4 columns)
-        self.pred_rescaled = None         # The  predictions rescaled (4 columns)
-        self.pred_class = None            # The prediction class
-        self.pred_close = None            # The adjusted prediction close
-        self.pred_high = None             # The adjusted prediction close
-        self.pred_low = None              # The adjusted prediction close
-        self.adj_pred = None              # The adjusted predictions (3 columns)
-        self.adj_pred_class = None        # The adjusted prediction class
-        self.adj_pred_close = None        # The adjusted prediction close
-        self.adj_pred_high = None         # The adjusted prediction high
-        self.adj_pred_low = None          # The adjusted prediction low
-        self.dateStart_train = None       # The start date for the training period
-        self.analysis = None              # The analysis of the model
-        self.analysis_path = None         # The path to the analysis file
-        self.dateEnd_train = None         # The end date for the training period
-        self.dateStart_pred = None        # The start date for the prediction period
-        self.dateEnd_pred = None          # The end date for the prediction period
+        self.X = None  # 3D array of training data.
+        self.y = None  # Target values (Adj Close)
+        self.X_train = None  # Training data
+        self.X_test = None  # Test data
+        self.y_test = None  # Test data
+        self.y_test_closes = None  # Test data closes
+        self.y_train = None  # Training data
+        self.y_pred = None  # The prediction
+        self.y_pred_rescaled = None  # The rescaled prediction
+        self.mean_squared_error = None  # The mean squared error for the model
+        self.target_close = None  # The target close
+        self.target_high = None  # The target high
+        self.target_low = None  # The target low
+        self.pred = None  # The predictions (4 columns)
+        self.pred_rescaled = None  # The  predictions rescaled (4 columns)
+        self.pred_class = None  # The prediction class
+        self.pred_close = None  # The adjusted prediction close
+        self.pred_high = None  # The adjusted prediction close
+        self.pred_low = None  # The adjusted prediction close
+        self.adj_pred = None  # The adjusted predictions (3 columns)
+        self.adj_pred_class = None  # The adjusted prediction class
+        self.adj_pred_close = None  # The adjusted prediction close
+        self.adj_pred_high = None  # The adjusted prediction high
+        self.adj_pred_low = None  # The adjusted prediction low
+        self.dateStart_train = None  # The start date for the training period
+        self.analysis = None  # The analysis of the model
+        self.analysis_path = None  # The path to the analysis file
+        self.dateEnd_train = None  # The end date for the training period
+        self.dateStart_pred = None  # The start date for the prediction period
+        self.dateEnd_pred = None  # The end date for the prediction period
         self.back_candles = back_candles  # The number of candles to look back for each period.
-        self.split_pcnt = split_pcnt      # The value for splitting data into training and testing.
-        self.split_limit = None           # The split limit for training and testing data.
-        self.batch_size = batch_size      # The batch size for training the model.
-        self.epochs = epochs              # The number of epochs for training the model.
-        self.shuffle = shuffle            # Shuffle the data for training the model.
-        self.val_split = val_split        # The validation split used during training.
-        self.seasonal_dec = None          # The seasonal decomposition
-        self.keras_log = keras_log        # The keras log file
+        self.split_pcnt = split_pcnt  # The value for splitting data into training and testing.
+        self.split_limit = None  # The split limit for training and testing data.
+        self.batch_size = batch_size  # The batch size for training the model.
+        self.epochs = epochs  # The number of epochs for training the model.
+        self.shuffle = shuffle  # Shuffle the data for training the model.
+        self.val_split = val_split  # The validation split used during training.
+        self.seasonal_dec = None  # The seasonal decomposition
+        self.keras_log = keras_log  # The keras log file
         self.keras_verbosity = keras_verbosity  # The keras verbosity level
-        self.cached_train_data = DataCache()    # Cached training data
-        self.cached_pred_data = DataCache()     # Cached prediction data
+        self.cached_train_data = DataCache()  # Cached training data
+        self.cached_pred_data = DataCache()  # Cached prediction data
         # Analitics...
-        self.last_analysis = None         # The last analysis
-        self.preds_path = None            # The path to the predictions file
-        self.pred_last_delta = None       # The last delta in the prediction
-        self.pred_rank = None             # The rank of the prediction
-        self.season_last_delta = None     # The last delta in the seasonal decomposition
-        self.season_rank = None           # The rank of the seasonal decomposition
-        self.season_corr = None           # The correlation of the seasonal decomposition
-        self.pred_strength = None         # The strength of the prediction
-        self.top10coint = None            # The top 10 cointegrations dict {'<Sym>': <coint_measure>}
-        self.top10corr = None             # The top 10 correlations dict {'<Sym>': <Corr%>}
-        self.top10xcorr = None            # The top 10 cross correlations dict {'<Sym>': <xCorr%>}
-        self.sentiment_json = {}          # The sentiment as json
-        self.sentiment_text = ''          # The sentiment as text
-        self.yf_sleep = yf_sleep          # The sleep time for yfinance requests
-        self.yf_cached = False            # Using the yfinance_cache
-        self.yf = None
+        self.last_analysis = None  # The last analysis
+        self.preds_path = None  # The path to the predictions file
+        self.pred_last_delta = None  # The last delta in the prediction
+        self.pred_rank = None  # The rank of the prediction
+        self.season_last_delta = None  # The last delta in the seasonal decomposition
+        self.season_rank = None  # The rank of the seasonal decomposition
+        self.season_corr = None  # The correlation of the seasonal decomposition
+        self.pred_strength = None  # The strength of the prediction
+        self.top10coint = None  # The top 10 cointegrations dict {'<Sym>': <coint_measure>}
+        self.top10corr = None  # The top 10 correlations dict {'<Sym>': <Corr%>}
+        self.top10xcorr = None  # The top 10 cross correlations dict {'<Sym>': <xCorr%>}
+        self.sentiment_json = {}  # The sentiment as json
+        self.sentiment_text = ''  # The sentiment as text
+        self.yf_sleep = yf_sleep  # The sleep time for yfinance requests
+        self.yf_cached = False  # Using the yfinance_cache
+        self.yf = None  # The yfinance/yfinance_cache object used
+        self.spread_analysis = {}  # Spread analysis against other tickers
+        self.logger = None  # The logger for this object
+
 
         # Create a logger for this object.
         if logger is None:
@@ -314,7 +319,8 @@ class PricePredict():
             raise RuntimeError(f"*** Exception: Model directory [{self.model_dir}] does not exist at [{os.getcwd()}]")
         # Verify that we can see the predictions directory.
         if not os.path.exists(self.preds_dir):
-            raise RuntimeError(f"*** Exception: Predictions directory [{self.preds_dir}] does not exist at [{os.getcwd()}]")
+            raise RuntimeError(
+                f"*** Exception: Predictions directory [{self.preds_dir}] does not exist at [{os.getcwd()}]")
 
         # Set the yfinance mode...
         if self.yf is None:
@@ -450,7 +456,8 @@ class PricePredict():
             period = self.period
         else:
             if period not in PricePredict.PeriodValues:
-                self.logger.error(f"*** Exception: [{ticker}]: period[{period}] must be \"{'"| "'.join(PricePredict.PeriodValues)}\"")
+                self.logger.error(
+                    f"*** Exception: [{ticker}]: period[{period}] must be \"{'"| "'.join(PricePredict.PeriodValues)}\"")
                 raise ValueError(f"period[{period}]: man only be \"{'", "'.join(PricePredict.PeriodValues)}\"")
             self.period = period
 
@@ -511,7 +518,8 @@ class PricePredict():
                 # Rename the data's index.name to 'Date'
                 data.index.name = 'Date'
             else:
-                self.logger.error(f"Error: No Date or Datetime in data.index.name for {ticker} from {date_start} to {date_end}")
+                self.logger.error(
+                    f"Error: No Date or Datetime in data.index.name for {ticker} from {date_start} to {date_end}")
                 return None, None
 
         # Aggregate the data to a weekly period, if nd
@@ -720,19 +728,20 @@ class PricePredict():
         :return model:   # Returns the loaded keras model
         """
         model = None
-        if len(args)==1 and args[0]!='':
+        if len(args) == 1 and args[0] != '':
             return self._fetch_model_1(args[0])
         if len(kwargs) and 'model_path' in kwargs.keys():
             return self._fetch_model_1(kwargs['model_path'])
 
-        if len(args)>1 and args[0] != '':
+        if len(args) > 1 and args[0] != '':
             ticker = args[0]
             dateStart = args[1]
             dateEnd = args[2]
             model_dir = args[3]
             return self._fetch_model_2(ticker=ticker, dateStart=dateStart, dateEnd=dateEnd, modelDir=model_dir)
         if len(kwargs) > 0 and kwargs['ticker'] != '':
-            return self._fetch_model_2(ticker=kwargs['ticker'], dateStart=kwargs['dateStart'], dateEnd=kwargs['dateEnd'], modelDir=kwargs['modelDir'])
+            return self._fetch_model_2(ticker=kwargs['ticker'], dateStart=kwargs['dateStart'],
+                                       dateEnd=kwargs['dateEnd'], modelDir=kwargs['modelDir'])
         self.logger.error("Error: Invalid parameters.", sys.stderr)
         return None
 
@@ -868,7 +877,8 @@ class PricePredict():
         """
         if period is None:
             self.period = period
-        self.logger.info(f"Cache Training Data:[{symbol}]  period:[{period}]  dateStart:[{dateStart_}]  dateEnd:[{dateEnd_}]")
+        self.logger.info(
+            f"Cache Training Data:[{symbol}]  period:[{period}]  dateStart:[{dateStart_}]  dateEnd:[{dateEnd_}]")
         # =======================
         # Cache the training data
         # =======================
@@ -908,21 +918,6 @@ class PricePredict():
         str_datesData = pd.Series(str_datesData)
 
         # Cache the data
-        # training_cache = DataCache()
-        # training_cache.set_item('symbol', symbol if symbol is not None else '')
-        # training_cache.set_item('dateStart', dateStart_ if dateStart_ is not None else '')
-        # training_cache.set_item('dateEnd', dateEnd_ if dateEnd_ is not None else '')
-        # training_cache.set_item('period', period if period is not None else '')
-        # tc_orig_data = self.orig_data.copy(deep=True)
-        # tc_orig_data.reset_index(inplace=True)
-        # tc_orig_data_str = tc_orig_data.to_json()
-        # training_cache.set_item('data', tc_orig_data_str if tc_orig_data_str is not None else '{}')
-        # training_cache.set_item('feature_cnt', self.features)
-        # training_cache.set_item('data_scaled', list(self.data_scaled))
-        # training_cache.set_item('target_cnt', self.targets)
-        # training_cache.set_item('dates_data', str_datesData.to_json())
-        # training_cache.set_item('X', list(self.X))
-        # training_cache.set_item('y', list(self.y))
         training_cache = DataCache()
         training_cache.symbol = symbol if symbol is not None else ''
         training_cache.dateStart = dateStart_ if dateStart_ is not None else ''
@@ -1021,8 +1016,10 @@ class PricePredict():
         if self.model is None or force_training is True:
             tc = self.cached_train_data
             if tc is None:
-                self.logger.error(f"Error: No training data cached for {self.ticker}. Cached training data was expected.")
-                raise ValueError(f"Error: No training data cached for {self.ticker}. Cached training data was expected.")
+                self.logger.error(
+                    f"Error: No training data cached for {self.ticker}. Cached training data was expected.")
+                raise ValueError(
+                    f"Error: No training data cached for {self.ticker}. Cached training data was expected.")
             self.ticker = tc.symbol
             self.dateStart_train = tc.dateStart
             self.dateEnd_train = tc.dateEnd
@@ -1062,7 +1059,8 @@ class PricePredict():
         # Load the cached prediction
         pc = self.cached_pred_data
         if pc is None:
-            self.logger.error(f"Exception Error: No prediction data cached for {self.ticker}. Cached prediction data was expected.")
+            self.logger.error(
+                f"Exception Error: No prediction data cached for {self.ticker}. Cached prediction data was expected.")
             return
         try:
             self.ticker = pc.symbol
@@ -1395,6 +1393,7 @@ class PricePredict():
                                           adam_learning_rate=adam_learning_rate)
             # Loss is flipped because we want to maximize the loss.
             return -loss
+
         # === End of the function to optimize ===
         # ======================================================
 
@@ -1530,7 +1529,6 @@ class PricePredict():
 
         return y_pred
 
-
     def adjust_prediction(self):
         """
         The adjusted prediction leverages the deltas between the predicted values
@@ -1590,10 +1588,10 @@ class PricePredict():
         # Determine the rank of the last prediction from 1 to 10.
         ranking = np.digitize(abs_deltas, np.histogram(abs_deltas, bins=10)[1])
         # rank of the last value
-        pred_rank = ranking[-2]                  # Index to 2nd to last value, as the last value is a placeholder.
+        pred_rank = ranking[-2]  # Index to 2nd to last value, as the last value is a placeholder.
 
         self.pred_last_delta = pred_delta_c[-2]  # Index to 2nd to last value, as the last value is a placeholder.
-        pred_sign = np.sign(pred_delta_c[-2])    # Index to 2nd to last value, as the last value is a placeholder.
+        pred_sign = np.sign(pred_delta_c[-2])  # Index to 2nd to last value, as the last value is a placeholder.
         # Invert the rank so that longs are positive and shorts are negative
         self.pred_rank = (pred_sign * pred_rank) * -1
 
@@ -1601,11 +1599,11 @@ class PricePredict():
         self.target_high = target_high
         self.target_low = target_low
 
-        self.adj_pred = adj_pred               # The adjusted predictions
-        self.adj_pred_class = pred_class       # Does not get adjusted
-        self.adj_pred_close = pred_adj_close   # Adjusted close
-        self.adj_pred_high = pred_adj_high     # Adjusted high
-        self.adj_pred_low = pred_adj_low       # Adjusted low
+        self.adj_pred = adj_pred  # The adjusted predictions
+        self.adj_pred_class = pred_class  # Does not get adjusted
+        self.adj_pred_close = pred_adj_close  # Adjusted close
+        self.adj_pred_high = pred_adj_high  # Adjusted high
+        self.adj_pred_low = pred_adj_low  # Adjusted low
 
         return pred_adj_close, pred_adj_high, pred_adj_low
 
@@ -1762,9 +1760,11 @@ class PricePredict():
         # Copy from the original data the OHLCV data for the prediction period...
         # df_ohlcv Will have an 'Date' as it's index...
         if 'Close' in self.orig_data.columns:
-            df_ohlcv = pd.DataFrame(self.orig_data[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]).tail(len(self.pred) - 1)
+            df_ohlcv = pd.DataFrame(self.orig_data[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]).tail(
+                len(self.pred) - 1)
         else:
-            df_ohlcv = pd.DataFrame(self.orig_data[['Open', 'High', 'Low', 'Adj Close', 'Volume']]).tail(len(self.pred) - 1)
+            df_ohlcv = pd.DataFrame(self.orig_data[['Open', 'High', 'Low', 'Adj Close', 'Volume']]).tail(
+                len(self.pred) - 1)
             # Duplicate the 'Adj Close' column as 'Close'...
             df_ohlcv['Close'] = df_ohlcv['Adj Close']
 
@@ -1867,7 +1867,7 @@ class PricePredict():
         return file_paths
 
     def _fetch_n_prep(self, ticker: str, date_start: str, date_end: str,
-                      period: str = None, split_pcnt: float =0.05,
+                      period: str = None, split_pcnt: float = 0.05,
                       backcandels: bool = None):
 
         # Handle the optional parameters
@@ -1901,8 +1901,8 @@ class PricePredict():
         self.split_limit = splitlimit
 
         # logger.info("lenX:",len(X), "splitLimit:",splitlimit)
-        X_train, X_test = X[:splitlimit], X[splitlimit:] # Training data, Test Data
-        y_train, y_test = y[:splitlimit], y[splitlimit:] # Training data, Test Data
+        X_train, X_test = X[:splitlimit], X[splitlimit:]  # Training data, Test Data
+        y_train, y_test = y[:splitlimit], y[splitlimit:]  # Training data, Test Data
 
         self.ticker = ticker
         self.orig_data = orig_data
@@ -1923,121 +1923,6 @@ class PricePredict():
         self.data_scaled = scaled_data
 
         return X, y
-
-    def fetch_train_and_predict(self, ticker,
-                                train_date_start, train_date_end,
-                                pred_date_start, pred_date_end,
-                                force_training=None,
-                                period=None, split_pcnt=None, backcandels=None,
-                                use_curr_model=True, save_model=False):
-        """
-        Train and test the model.
-        Does not load a model, only trains it.
-
-        # Required Positional Parameters
-        :param ticker:
-        :param train_date_start:
-        :param train_date_end:
-        :param pred_date_start:
-        :param pred_date_end:
-
-        Optional Parameters:
-        :param period=None:      # The period of the data, daily or weekly
-        :param split_pcnt=None:  # The percentage of the data to use for training
-        :param backcandels=None: # The number of candles to look back for each period
-        :param save_model=False: # Save the model if True, and force training
-
-        :return:
-        """
-
-        if force_training is None and self.force_training is not None:
-            force_training = self.force_training
-        else:
-            self.force_training = force
-
-        if ticker is None or ticker == '':
-            self.logger.error("Error: ticker is empty.")
-            raise ValueError("Error: ticker is empty.")
-
-        if period is None:
-            period = self.period
-        else:
-            if period not in PricePredict.PeriodValues:
-                self.logger.error(f"period[{period} is invalid. Must be \"{'", "'.join(PricePredict.PeriodValues)}\"")
-                raise ValueError(f"period[{period}]: may only be \"{'", "'.join(PricePredict.PeriodValues)}\"")
-            self.period = period
-        if split_pcnt is None:
-            split_pcnt = self.split_pcnt
-        else:
-            self.split_pcnt = split_pcnt
-        if backcandels is None:
-            backcandels = self.back_candles
-        else:
-            self.back_candles = backcandels
-
-        model = None
-        if use_curr_model and force_training is False:
-            # If the self.model is None, load the latest model if it exists...
-            if self.model is not None:
-                # Load an existing model if it exists
-                model_path = self.model_dir + ticker + f"_{period}_" + train_date_start + "_" + train_date_end + ".keras"
-                if os.path.exists(model_path):
-                    model = self.load_model(model_path)
-                    self.logger.info(f">>> Model Loaded: {model_path}")
-                else:
-                    self.logger.info(f"=== Model Not Found: {model_path}")
-            else:
-                # Use the currently load loaded model.
-                model = self.model
-
-        if model is None:
-            # Load training data and prepare the data
-            X, y = self._fetch_n_prep(ticker, train_date_start, train_date_end,
-                                      period=period, split_pcnt=0)
-
-            # ============== Train the model
-            # Use a small batch size and epochs to test the model training
-            # Training split the X & y data into training and testing data
-            # What is returned is the model, the prediction, and the mean squared error.
-            model, y_pred, mse = self.train_model(X, y,
-                                                  split_pcnt=split_pcnt,backcandels=backcandels)
-
-            if len(y_pred) != 0:
-                pcnt_nan = (len(y_pred) - np.count_nonzero(~np.isnan(y_pred))) / len(y_pred)
-                if pcnt_nan > 0.1:
-                    self.logger.info(f"\n*** NaNs in y_pred: {pcnt_nan}%")
-                    # Throw a data exception if the model is not trained properly.
-                    raise ValueError("Error: Prediction has too many NaNs. Check for Nans in the data?")
-
-            # Load testing data and prepare the data
-            X, y = self._fetch_n_prep(ticker, pred_date_start, pred_date_end,
-                                      period=period, split_pcnt=0)
-            # Predict the price for the test period
-            y_pred = self.predict_price(X)
-
-            pcnt_nan = (len(y_pred) - np.count_nonzero(~np.isnan(y_pred))) / len(y_pred)
-            if pcnt_nan > 0.1:
-                self.logger.info(f"\n*** NaNs in y_pred: {pcnt_nan}%")
-                # Throw a data exception if the model is not trained properly.
-                raise ValueError("Error: Prediction has too many NaNs. Check for Nans in the data?")
-
-            adj_pred_close, adj_pred_high, adj_pred_low = self.adjust_prediction()
-            # ============= End of training and testing the model
-            # Save the model?
-            if save_model:
-                self.save_model(model, model_dir=self.model_dir,
-                                ticker=ticker,
-                                date_start=train_date_start, date_end=train_date_end)
-                self.model = model
-
-        self.dateStart_train = train_date_start
-        self.dateEnd_train = train_date_end
-        self.dateStart_pred = pred_date_start
-        self.dateEnd_pred = pred_date_end
-        self.X = X
-        self.y = y
-
-        return self.model
 
     def fetch_and_predict(self, model_path: str = None,
                           date_start: str = None, date_end: str = None):
@@ -2101,11 +1986,11 @@ class PricePredict():
         adj_pred_close, adj_pred_high, adj_pred_low = self.adjust_prediction()
 
         # Get a list of the actual closing prices for the test period.
-        closes = np.array(orig_data['Adj Close'])[:len(X)-1]
+        closes = np.array(orig_data['Adj Close'])[:len(X) - 1]
         closes = np.append(closes, closes[-1])
-        highs = np.array(orig_data['High'])[:len(X)-1]
+        highs = np.array(orig_data['High'])[:len(X) - 1]
         highs = np.append(highs, highs[-1])
-        lows = np.array(orig_data['Low'])[:len(X)-1]
+        lows = np.array(orig_data['Low'])[:len(X) - 1]
         lows = np.append(lows, lows[-1])
 
         self.dateStart_train = dateStart_train
@@ -2128,12 +2013,127 @@ class PricePredict():
         self.pred_high = pred_high
         self.pred_low = pred_low
 
-
         pred_dates = self.date_data
 
         pred_dates = pd.Series._append(pred_dates, pd.Series(self.date_data.iloc[-1] + self.next_timedelta()))
 
         return self.adj_pred, pred_dates
+
+    def fetch_train_and_predict(self, ticker,
+                                train_date_start, train_date_end,
+                                pred_date_start, pred_date_end,
+                                force_training=False,
+                                period=None, split_pcnt=None, backcandels=None,
+                                use_curr_model=True, save_model=False):
+        """
+        Train and test the model.
+        Does not load a model, only trains it.
+
+        # Required Positional Parameters
+        :param ticker:
+        :param train_date_start:
+        :param train_date_end:
+        :param pred_date_start:
+        :param pred_date_end:
+
+        Optional Parameters:
+        :param period=None:      # The period of the data, daily or weekly
+        :param split_pcnt=None:  # The percentage of the data to use for training
+        :param backcandels=None: # The number of candles to look back for each period
+        :param save_model=False: # Save the model if True, and force training
+
+        :return:
+        """
+
+        if force_training is None and self.force_training is not None:
+            force_training = self.force_training
+        else:
+            force_training = False
+            self.force_training = force_training
+
+        if ticker is None or ticker == '':
+            self.logger.error("Error: ticker is empty.")
+            raise ValueError("Error: ticker is empty.")
+
+        if period is None:
+            period = self.period
+        else:
+            if period not in PricePredict.PeriodValues:
+                self.logger.error(f"period[{period} is invalid. Must be \"{'", "'.join(PricePredict.PeriodValues)}\"")
+                raise ValueError(f"period[{period}]: may only be \"{'", "'.join(PricePredict.PeriodValues)}\"")
+            self.period = period
+        if split_pcnt is None:
+            split_pcnt = self.split_pcnt
+        else:
+            self.split_pcnt = split_pcnt
+        if backcandels is None:
+            backcandels = self.back_candles
+        else:
+            self.back_candles = backcandels
+
+        model = None
+        if use_curr_model and force_training is False:
+            # If the self.model is None, load the latest model if it exists...
+            if self.model is not None:
+                # Load an existing model if it exists
+                model_path = self.model_dir + ticker + f"_{period}_" + train_date_start + "_" + train_date_end + ".keras"
+                if os.path.exists(model_path):
+                    model = self.load_model(model_path)
+                    self.logger.info(f">>> Model Loaded: {model_path}")
+                else:
+                    self.logger.info(f"=== Model Not Found: {model_path}")
+            else:
+                # Use the currently load loaded model.
+                model = self.model
+
+        if model is None:
+            # Load training data and prepare the data
+            X, y = self._fetch_n_prep(ticker, train_date_start, train_date_end,
+                                      period=period, split_pcnt=0)
+
+            # ============== Train the model
+            # Use a small batch size and epochs to test the model training
+            # Training split the X & y data into training and testing data
+            # What is returned is the model, the prediction, and the mean squared error.
+            model, y_pred, mse = self.train_model(X, y,
+                                                  split_pcnt=split_pcnt, backcandels=backcandels)
+
+            if len(y_pred) != 0:
+                pcnt_nan = (len(y_pred) - np.count_nonzero(~np.isnan(y_pred))) / len(y_pred)
+                if pcnt_nan > 0.1:
+                    self.logger.info(f"\n*** NaNs in y_pred: {pcnt_nan}%")
+                    # Throw a data exception if the model is not trained properly.
+                    raise ValueError("Error: Prediction has too many NaNs. Check for Nans in the data?")
+
+            # Load testing data and prepare the data
+            X, y = self._fetch_n_prep(ticker, pred_date_start, pred_date_end,
+                                      period=period, split_pcnt=0)
+            # Predict the price for the test period
+            y_pred = self.predict_price(X)
+
+            pcnt_nan = (len(y_pred) - np.count_nonzero(~np.isnan(y_pred))) / len(y_pred)
+            if pcnt_nan > 0.1:
+                self.logger.info(f"\n*** NaNs in y_pred: {pcnt_nan}%")
+                # Throw a data exception if the model is not trained properly.
+                raise ValueError("Error: Prediction has too many NaNs. Check for Nans in the data?")
+
+            adj_pred_close, adj_pred_high, adj_pred_low = self.adjust_prediction()
+            # ============= End of training and testing the model
+            # Save the model?
+            if save_model:
+                self.save_model(model, model_dir=self.model_dir,
+                                ticker=ticker,
+                                date_start=train_date_start, date_end=train_date_end)
+                self.model = model
+
+        self.dateStart_train = train_date_start
+        self.dateEnd_train = train_date_end
+        self.dateStart_pred = pred_date_start
+        self.dateEnd_pred = pred_date_end
+        self.X = X
+        self.y = y
+
+        return self.model
 
     def next_timedelta(self):
         time_delta = None
@@ -2185,18 +2185,19 @@ class PricePredict():
             return False
 
         # Convert back to dollar $values
-        elements = len(self.pred_rescaled) - 1
+        elements = len(self.adj_pred) - 1
         # logger.info(f"elements:{elements}")
         tot_deltas = 0
         tot_tradrng = 0
         for i in range(-1, -elements, -1):
             actual = self.orig_data['Adj Close'].iloc[i - 1]
-            predval = self.pred_rescaled[i - 1][1]
+            predval = self.adj_pred[i - 1][1]
             pred_delta = abs(predval - actual)
             tot_deltas += pred_delta
             trd_rng = abs(self.orig_data['High'].iloc[i] - self.orig_data['Low'].iloc[i])
             tot_tradrng += trd_rng
-            self.logger.info(f"{i}: Close: {actual.round(2)}  Predicted: ${predval.round(2)}  Actual: ${actual.round(2)}  Delta: ${pred_delta.round(6)}  Trade Rng: ${trd_rng.round(2)}")
+            self.logger.info(
+                f"{i}: Close: {actual.round(2)}  Predicted: ${predval.round(2)}  Actual: ${actual.round(2)}  Delta: ${pred_delta.round(6)}  Trade Rng: ${trd_rng.round(2)}")
 
         self.logger.info("============================================================================")
         self.logger.info(f"Mean Trading Range: ${round(tot_tradrng / elements, 2)}")
@@ -2219,7 +2220,8 @@ class PricePredict():
             tot_deltas += pred_delta
             trd_rng = abs(self.orig_data['High'].iloc[i] - self.orig_data['Low'].iloc[i])
             tot_tradrng += trd_rng
-            self.logger.info(f"{i}: Close {actual.round(2)}  Predicted: ${predval.round(2)}  Actual: ${actual.round(2)}  Delta:${pred_delta.round(6)}  Trade Rng: ${trd_rng.round(2)}")
+            self.logger.info(
+                f"{i}: Close {actual.round(2)}  Predicted: ${predval.round(2)}  Actual: ${actual.round(2)}  Delta:${pred_delta.round(6)}  Trade Rng: ${trd_rng.round(2)}")
 
         self.logger.info("============================================================================")
         self.logger.info(f"Mean Trading Range: ${round(tot_tradrng / elements, 2)}")
@@ -2242,9 +2244,9 @@ class PricePredict():
             # moving the Date field (tuple[0])...
             sd_trends = np.roll(sd_trend, len(sd_trend) - i - 1)
             # Get up/down/flat trand days
-            sd_trends = [1 if sd_trends[i] > sd_trends[i-1] else -1 for i in range(len(sd_trends)-1)]
+            sd_trends = [1 if sd_trends[i] > sd_trends[i - 1] else -1 for i in range(len(sd_trends) - 1)]
             # Get deltas between days
-            sd_deltas = [sd_trends[i] - sd_trends[i-1] for i in range(1, len(sd_trends))]
+            sd_deltas = [sd_trends[i] - sd_trends[i - 1] for i in range(1, len(sd_trends))]
             # Get up days vs down days
             self_data = self.orig_data
             # If the 'Close' column is not in the data, use the 'Adj Close' column
@@ -2322,7 +2324,6 @@ class PricePredict():
 
         return True
 
-
     def plot_pred_results(self,
                           target_close, target_high, target_low,
                           adj_pred_close, adj_pred_high, adj_pred_low,
@@ -2372,7 +2373,8 @@ class PricePredict():
         # Verify that self.date_end and ppo.date_end are
         # within 3 days of eachother.
         if abs((datetime.strptime(self.date_end, "%Y-%m-%d") - datetime.strptime(ppo.date_end, "%Y-%m-%d")).days) > 3:
-            self.logger.info(f"End dates must be within 3 days of each other. self[{self.ticker} {self.date_end}] != ppd[{ppo.ticker} {ppo.date_end}]")
+            self.logger.info(
+                f"End dates must be within 3 days of each other. self[{self.ticker} {self.date_end}] != ppd[{ppo.ticker} {ppo.date_end}]")
             return None
 
         # self.logger.debug(f"Calculating correlation between {self.ticker} and {ppo.ticker}")
@@ -2380,7 +2382,8 @@ class PricePredict():
         # Get the smaller of the end dates between self and ppo
         target_end_date = min(self.date_end, ppo.date_end)
         # Get the difference in days between self and ppo
-        days_diff = abs((datetime.strptime(self.date_end, "%Y-%m-%d") - datetime.strptime(ppo.date_end, "%Y-%m-%d")).days)
+        days_diff = abs(
+            (datetime.strptime(self.date_end, "%Y-%m-%d") - datetime.strptime(ppo.date_end, "%Y-%m-%d")).days)
         if target_end_date == self.date_end:
             self_days_diff = 0
             ppo_days_diff = days_diff
@@ -2399,7 +2402,8 @@ class PricePredict():
         if pc_period_len is None:
             pc_period_len = min_len
         elif pc_period_len < min_len:
-            self.logger.warn(f"pc_period_len [{pc_period_len}] is less than the minimum length of the data [{min_len}]. self_len[{self_len}], ppd_len[{ppo_len}]")
+            self.logger.warn(
+                f"pc_period_len [{pc_period_len}] is less than the minimum length of the data [{min_len}]. self_len[{self_len}], ppd_len[{ppo_len}]")
 
         # Get data from each object
         self_data = self.orig_data.iloc[-(pc_period_len + self_days_diff):-(1 + self_days_diff)]
@@ -2411,7 +2415,8 @@ class PricePredict():
         self_closes = self_closes.bfill().ffill()
         if close_col not in self_data.columns:
             close_col = 'Adj Close'
-        self_trends = [1 if self_data[close_col].iloc[i] > self_data['Open'].iloc[i] else -1 for i in range(len(self_data))]
+        self_trends = [1 if self_data[close_col].iloc[i] > self_data['Open'].iloc[i] else -1 for i in
+                       range(len(self_data))]
         close_col = 'Close'
         ppo_closes = ppo_data[close_col]
         ppo_closes = ppo_closes.bfill().ffill()
@@ -2451,10 +2456,12 @@ class PricePredict():
             # if coint_measure >= 0:
             if coint_measure < 0.05:
                 is_cointegrated = True
-            coint_dict = {'is_cointegrated': is_cointegrated, 'coint_measure': coint_measure, 't_stat': coint_test[0], 'p_val': coint_test[1], 'crit_val': list(coint_test[2])}
+            coint_dict = {'is_cointegrated': is_cointegrated, 'coint_measure': coint_measure, 't_stat': coint_test[0],
+                          'p_val': coint_test[1], 'crit_val': list(coint_test[2])}
         except Exception as e:
             self.logger.error(f"Error: {e}")
-            self.logger.error(f"self.ticker:{self.ticker}-len:{len(self_trends)} ppo.ticker:{ppo.ticker}-len:{len(ppo_trends.shape)}")
+            self.logger.error(
+                f"self.ticker:{self.ticker}-len:{len(self_trends)} ppo.ticker:{ppo.ticker}-len:{len(ppo_trends.shape)}")
             raise ValueError(f"Error: {e}")
 
         total_days = len(corr_list)
@@ -2524,36 +2531,36 @@ class PricePredict():
                      <exampleOutput>
                          <sentimentTextOutput> 
                          Here's a breakdown of the analysis:
-    
+
                          **Balance Sheet Analysis**
-                        
+
                          * Treasury shares number: No change, as NaN values are present.
                          * Ordinary shares number: Stable, with no significant changes.
                          * Net debt: Increased significantly, which may be a concern.
                          * Cash and cash equivalents: Increased significantly, indicating sufficient liquidity.
-                        
+
                          **Income Statement Analysis**
-                        
+
                          * Net income from continuing operation net minority interest: Increased significantly, a positive sign.
                          * EBITDA: Consistently positive, indicating a healthy operating performance.
                          * Interest expense: Decreasing, which is a positive trend.
                          * Research and development expenses: Increasing, which may be a strategic investment for future growth.
-                        
+
                          **Critical Analysis**
-                        
+
                          * Missing values: Some incomplete financial statements, which may indicate a lack of transparency or mis-reporting of data.
                          * Debt level: Increasing, which may be a concern for investors and creditors.
                          * Tangible book value: No information provided, which makes it difficult to assess the company's financial health.
                          * Cash convertibility: Sufficient liquidity, as indicated by the increased cash and cash equivalents.
-                        
+
                          **Sentiment Analysis**
-                        
+
                          * Board members: 3 (neutral), as they may be concerned about the increasing debt level but optimistic about the company's growth prospects.
                          * Shareholders: 3 (neutral), as they may be pleased with the increasing net income but concerned about the debt level and missing values.
                          * Short sellers: 2 (somewhat negative), as they may be skeptical about the company's ability to sustain its growth and concerned about the increasing debt level.
-                        
+
                          **Overall Sentiment Score**
-                        
+
                          * 2.67 (somewhat positive), as the company's financial performance is generally positive, but concerns about debt level and missing values exist.
                          </sentimentTextOutput> 
                          <JsonOutputFormat> 
@@ -2618,10 +2625,9 @@ class PricePredict():
             self.sentiment_json = {}
             self.sentiment_text = ''
 
-
     def seasonality(self, save_chart: bool = False,
-                          show_chart: bool = False,
-                          sd_period_len: int = 30):
+                    show_chart: bool = False,
+                    sd_period_len: int = 30):
         """
         Analyze the seasonality of the data in orig_data.
         Use statsmodels.api to analyze the seasonality of the data.
@@ -2671,9 +2677,9 @@ class PricePredict():
         if close_col not in data.columns:
             close_col = 'Adj Close'
         new_row = {"Date": next_date,
-                     "Open": data[close_col].iloc[-1], "High": data[close_col].iloc[-1],
-                     "Low": data[close_col].iloc[-1], "Close": data[close_col].iloc[-1],
-                     "Adj Close": data['Adj Close'].iloc[-1], "Volume": 0}
+                   "Open": data[close_col].iloc[-1], "High": data[close_col].iloc[-1],
+                   "Low": data[close_col].iloc[-1], "Close": data[close_col].iloc[-1],
+                   "Adj Close": data['Adj Close'].iloc[-1], "Volume": 0}
         # Set the new row to the next day's date...
         new_row = pd.DataFrame(new_row, index=[next_date])
         # Append a place holder day for the prediction...
@@ -2684,7 +2690,8 @@ class PricePredict():
         try:
             seasonal_dec = sm.tsa.seasonal_decompose(data[close_col], model='additive', period=sd_period_len)
         except Exception as e:
-            self.logger.error(f"Error: Could not perform seasonal decomposition for [{self.ticker}] [{self.period}]\n{e}")
+            self.logger.error(
+                f"Error: Could not perform seasonal decomposition for [{self.ticker}] [{self.period}]\n{e}")
             return None
 
         # Save the seasonal decomposition data
@@ -2704,3 +2711,17 @@ class PricePredict():
                 seasonal_dec.plot().show(fig)
 
         return seasonal_dec
+
+    @staticmethod
+    def serialize(obj):
+        # Compress the object
+        return lzma.compress(dill.dumps(obj))
+
+    @staticmethod
+    def unserialize(obj):
+        # Decompress the object
+        return dill.loads(lzma.decompress(obj))
+
+    def serialize_me(self):
+        # Compress the object
+        return PricePredict.serialize(self)
