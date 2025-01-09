@@ -103,6 +103,8 @@ opt_hyperparams = f'{gui_data}ticker_bopts.json'
 model_dir = './models/'
 chart_dir = './charts/'
 preds_dir = './predictions/'
+ppo_dir = './ppo/'
+ppo_save_dir = './ppo_save/'
 
 import_cols_simple = 2
 import_cols_full = 12
@@ -1283,9 +1285,9 @@ def load_pp_objects__(st):
         logger.info("Loading PricePredict objects")
         try:
             with open(dill_sym_dpps_d, "rb") as f:
-                sym_dpps_d_ = dill.load(f)
+                sym_dpps_d_ = PricePredict.unserialize(f)
             with open(dill_sym_dpps_w, "rb") as f:
-                sym_dpps_w_ = dill.load(f)
+                sym_dpps_w_ = PricePredict.unserialize(f)
             # Create Backups files after a successful load...
             # Copy the PricePredict objects to the backup files
             logger.info("Copying PricePredict objects to backup files")
@@ -1301,9 +1303,9 @@ def load_pp_objects__(st):
                 and os.path.getsize(dillbk_sym_dpps_w) > min_dil_size):
             try:
                 with open(dillbk_sym_dpps_d, "rb") as f:
-                    sym_dpps_d_ = dill.load(f)
+                    sym_dpps_d_ = PricePredict.unserialize(f)
                 with open(dillbk_sym_dpps_w, "rb") as f:
-                    sym_dpps_w_ = dill.load(f)
+                    sym_dpps_w_ = PricePredict.unserialize(f)
             except Exception as e:
                 logger.error(f"Error loading PricePredict backup objects via dill: {e}")
         else:
@@ -1373,13 +1375,13 @@ def load_pp_objects(st):
             if period == 'W':
                 try:
                     with open(entry, "rb") as f:
-                        sym_dpps_w_[sym] = dill.load(f)
+                        sym_dpps_w_[sym] = PricePredict.unserialize(f)
                 except Exception as e:
                     logger.warning(f"Error loading PricePredict object [{sym}]: {e}")
             elif period == 'D':
                 try:
                     with open(entry, "rb") as f:
-                        sym_dpps_d_[sym] = dill.load(f)
+                        sym_dpps_d_[sym] = PricePredict.unserialize(f)
                 except Exception as e:
                     logger.warning(f"Error loading PricePredict object [{sym}]: {e}")
             i += 1
@@ -1476,7 +1478,8 @@ def sync_dpps_objects(st, prog_bar):
 
 
 def store_pp_objects__(st, prog_bar):
-
+    # Seems not to be used anymore...
+    # Likely to be removed in the future
     sync_dpps_objects(st, prog_bar)
     logger.info("Saving PricePredict objects (Daily Object)...")
     st.session_state['exp_sym'].info("Saving PricePredict Daily objects...")
@@ -1485,11 +1488,7 @@ def store_pp_objects__(st, prog_bar):
     try:
         if len(sym_dpps_d_) > 0:
             with open(dill_sym_dpps_d, "wb") as f:
-                dill.dump(sym_dpps_d_, f)
-        else:
-            # Truncate the pickle file
-            with open(dill_sym_dpps_d, "wb") as f:
-                f.truncate()
+                f.write(sym_dpps_d_.serialize_me())
     except Exception as e:
         logger.error(f"Error {dill_sym_dpps_d} - len[{len(sym_dpps_d_)}]: {e}")
         bo = dill.detect.badobjects(sym_dpps_d_, depth=2)
@@ -1503,12 +1502,7 @@ def store_pp_objects__(st, prog_bar):
     try:
         if len(sym_dpps_w_) > 0:
             with open(dill_sym_dpps_w, "wb") as f:
-                dill.dump(sym_dpps_w_, f)
-        else:
-            # Truncate the pickle file
-            with open(dill_sym_dpps_w, "wb") as f:
-                f.truncate()
-
+                f.write(sym_dpps_w_.serialize_me())
     except Exception as e:
         logger.error(f"Error saving  {dill_sym_dpps_w} - len[{len(sym_dpps_w_)}]: {e}")
         bo = dill.detect.badobjects(sym_dpps_w_, depth=2)
@@ -1536,7 +1530,7 @@ def store_pp_objects(st, prog_bar):
             file_path = './ppo/' + obj_file_name
             try:
                 with open(file_path, "wb") as f:
-                    dill.dump(ppw, f)
+                    f.write(ppw.serialize_me())
             except Exception as e:
                 bo = dill.detect.badobjects(ppw, depth=2)
                 logger.error(f"Bad objects in [{ppw.ticker}]:w: {bo}")
@@ -1561,7 +1555,7 @@ def store_pp_objects(st, prog_bar):
             file_path = './ppo/' + obj_file_name
             try:
                 with open(file_path, "wb") as f:
-                    dill.dump(ppd, f)
+                    f.write(ppd.serialize_me())
             except Exception as e:
                 bo = dill.detect.badobjects(ppd, depth=2)
                 logger.error(f"Bad objects in [{ppd.ticker}]:w: {bo}")
@@ -2197,6 +2191,8 @@ def optimize_hparams(st, prog_bar):
 
 
 def review_pp_objects(st, period):
+    # Seems not to be used. 2021-09-07
+    # Likely to be removed in the future.
     if period == PricePredict.PeriodDaily:
         sym_dpps = st.session_state[ss_SymDpps_d]
     elif period == PricePredict.PeriodWeekly:
@@ -2217,9 +2213,9 @@ def review_pp_objects(st, period):
         if ppo_save_file is not None:
             # Unpickle the PricePredict object
             ppo_save = None
-            with open(f'./ppo/save/{ppo_save_file}', 'rb') as f:
+            with open(f'{ppo_save_dir}/{ppo_save_file}', 'rb') as f:
                 try:
-                    ppo_save = dill.load(f)
+                    ppo_save = PricePredict.unserialize(f)
                 except Exception as e:
                     logger.error(f"Error loading PricePredict object: {e}")
             if ppo_save is not None:
