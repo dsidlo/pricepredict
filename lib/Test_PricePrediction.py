@@ -1176,23 +1176,30 @@ class Test_PricePredict(TestCase):
         self.assertIsNotNone(ret_dict, "periodic_correlation: Returned None")
         self.assertEqual(PricePredict.PeriodDaily, pp1.period, f"period[{pp1.period}]: Wrong period")
         self.assertEqual(PricePredict.PeriodDaily, pp2.period, f"pp2.period[{pp2.period}]: Wrong period")
-        exp_dict = {'avg_corr': 0.45815648341115,
-                    'coint_test': {'coint_measure': 0.7913338658535446,
-                                   'crit_val': [-3.907392469311905,
-                                                -3.3422286067719074,
-                                                -3.048681218209777],
-                                   'is_cointegrated': False,
-                                   'p_val': 0.7913338658535446,
-                                   't_stat': -1.417836901303577},
-                    'correlated_days': 675,
-                    'kendall_corr': 0.34496343125632,
-                    'pct_corr': 0.6723107569721115,
-                    'pct_uncorr': 0.32768924302788843,
-                    'pearson_nrm_corr': 0.34496343125631956,
-                    'pearson_raw_corr': 0.7977356398756404,
-                    'spearman_corr': 0.34496343125631995,
-                    'total_days': 1004,
-                    'uncorrelated_days': 329}
+        exp_dict = {'adf_test': {'adf_stat': -2.387161436363045,
+                                  'crit_val': {'1%': -3.436959175494265,
+                                               '10%': -2.568323660940752,
+                                               '5%': -2.8644579524531975},
+                                  'is_stationary': False,
+                                  'p_val': 0.14539283396434632},
+                     'avg_corr': 0.45815648341115,
+                     'coint_stationary': False,
+                     'coint_test': {'coint_measure': 0.7913338658535446,
+                                    'crit_val': [-3.907392469311905,
+                                                 -3.3422286067719074,
+                                                 -3.048681218209777],
+                                    'is_cointegrated': False,
+                                    'p_val': 0.7913338658535446,
+                                    't_stat': -1.417836901303577},
+                     'correlated_days': 675,
+                     'kendall_corr': 0.34496343125632,
+                     'pct_corr': 0.6723107569721115,
+                     'pct_uncorr': 0.32768924302788843,
+                     'pearson_nrm_corr': 0.34496343125631956,
+                     'pearson_raw_corr': 0.7977356398756404,
+                     'spearman_corr': 0.34496343125631995,
+                     'total_days': 1004,
+                     'uncorrelated_days': 329}
         self.assertEqual(exp_dict, ret_dict, f"exp_dict[{exp_dict}] does not match ret_dict[{ret_dict}]")
 
         # Perform the correlation analysis for the last 50 days
@@ -1200,23 +1207,30 @@ class Test_PricePredict(TestCase):
         self.assertIsNotNone(ret_dict, "periodic_correlation: Returned None")
         self.assertEqual(PricePredict.PeriodDaily, pp1.period, f"period[{pp1.period}]: Wrong period")
         self.assertEqual(PricePredict.PeriodDaily, pp2.period, f"pp2.period[{pp2.period}]: Wrong period")
-        exp_dict = {'total_days': 49,
-                    'correlated_days': 33,
-                    'uncorrelated_days': 16,
-                    'pct_corr': 0.673469387755102,
-                    'pct_uncorr': 0.32653061224489793,
-                    'pearson_raw_corr': 0.9089739104906921,
-                    'pearson_nrm_corr': 0.34233931937116724,
-                    'spearman_corr': 0.3423393193711671,
-                    'kendall_corr': 0.34233931937116713,
-                    'avg_corr': 0.48399796715104837,
-                    'coint_test': {'is_cointegrated': False,
-                                   'coint_measure': 0.1288591013147209,
-                                   't_stat': -2.9260016336866115,
-                                   'p_val': 0.1288591013147209,
-                                   'crit_val': [-4.139156232638889, -3.4663851215277774, -3.1339888888888887]
-                                   }
-                    }
+        exp_dict = {'adf_test': {'adf_stat': -1.901810878853289,
+                                  'crit_val': {'1%': -3.5745892596209488,
+                                               '10%': -2.6000391840277777,
+                                               '5%': -2.9239543084490744},
+                                  'is_stationary': False,
+                                  'p_val': 0.3312096962929829},
+                     'avg_corr': 0.48399796715104837,
+                     'coint_stationary': False,
+                     'coint_test': {'coint_measure': 0.1288591013147209,
+                                    'crit_val': [-4.139156232638889,
+                                                 -3.4663851215277774,
+                                                 -3.1339888888888887],
+                                    'is_cointegrated': False,
+                                    'p_val': 0.1288591013147209,
+                                    't_stat': -2.9260016336866115},
+                     'correlated_days': 33,
+                     'kendall_corr': 0.34233931937116713,
+                     'pct_corr': 0.673469387755102,
+                     'pct_uncorr': 0.32653061224489793,
+                     'pearson_nrm_corr': 0.34233931937116724,
+                     'pearson_raw_corr': 0.9089739104906921,
+                     'spearman_corr': 0.3423393193711671,
+                     'total_days': 49,
+                     'uncorrelated_days': 16}
         self.assertEqual(exp_dict, ret_dict, f"exp_dict[{exp_dict}] does not match ret_dict[{ret_dict}]")
 
         # Perform the correlation analysis for the last 7 days
@@ -1224,23 +1238,28 @@ class Test_PricePredict(TestCase):
         self.assertIsNotNone(ret_dict, "periodic_correlation: Returned None")
         self.assertEqual(PricePredict.PeriodDaily, pp1.period, f"period[{pp1.period}]: Wrong period")
         self.assertEqual(PricePredict.PeriodDaily, pp2.period, f"pp2.period[{pp2.period}]: Wrong period")
-        exp_dict = {'total_days': 6,
-                    'correlated_days': 4,
-                    'uncorrelated_days': 2,
-                    'pct_corr': 0.6666666666666666,
-                    'pct_uncorr': 0.3333333333333333,
-                    'pearson_raw_corr': -0.7188202902103971,
-                    'pearson_nrm_corr': 0.4472135954999579,
-                    'spearman_corr': 0.4472135954999579,
-                    'kendall_corr': 0.4472135954999579,
-                    'avg_corr': 0.1557051240723692,
-                    'coint_test': {'is_cointegrated': False,
-                                   'coint_measure': 0.9859002580259643,
-                                   't_stat': 0.0,
-                                   'p_val': 0.9859002580259643,
-                                   'crit_val': [-7.4279, -4.83107, -4.0014899999999995]
-                                   }
-                    }
+        exp_dict = {'adf_test': {'adf_stat': -2.3136161919999085,
+                                  'crit_val': {'1%': -6.045114,
+                                               '10%': -2.98681,
+                                               '5%': -3.9292800000000003},
+                                  'is_stationary': False,
+                                  'p_val': 0.16761407729461858},
+                     'avg_corr': 0.1557051240723692,
+                     'coint_stationary': False,
+                     'coint_test': {'coint_measure': 0.9859002580259643,
+                                    'crit_val': [-7.4279, -4.83107, -4.0014899999999995],
+                                    'is_cointegrated': False,
+                                    'p_val': 0.9859002580259643,
+                                    't_stat': 0.0},
+                     'correlated_days': 4,
+                     'kendall_corr': 0.4472135954999579,
+                     'pct_corr': 0.6666666666666666,
+                     'pct_uncorr': 0.3333333333333333,
+                     'pearson_nrm_corr': 0.4472135954999579,
+                     'pearson_raw_corr': -0.7188202902103971,
+                     'spearman_corr': 0.4472135954999579,
+                     'total_days': 6,
+                     'uncorrelated_days': 2}
         self.assertEqual(exp_dict, ret_dict, f"exp_dict[{exp_dict}] does not match ret_dict[{ret_dict}]")
 
     def test_seasonality(self):

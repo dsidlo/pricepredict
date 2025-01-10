@@ -2454,10 +2454,21 @@ class PricePredict():
             coint_measure = coint_test[1]
             is_cointegrated = False
             # if coint_measure >= 0:
-            if coint_measure < 0.05:
+            if coint_test[0] < min(coint_test[2]) and coint_measure < 0.05:
                 is_cointegrated = True
             coint_dict = {'is_cointegrated': is_cointegrated, 'coint_measure': coint_measure, 't_stat': coint_test[0],
                           'p_val': coint_test[1], 'crit_val': list(coint_test[2])}
+            # Augmented Dickey Fuller Test: This is a test for stationarity in the spread data between 2 stocks.
+            # This is required for Pairs Trading. We want the combination of Coinegration and Stationarity.
+            # - Get the spread between the two stocks via self_closes and ppo_closes
+            spread = self_closes - ppo_closes
+            spread = spread.bfill().ffill()
+            adf_result = sm.tsa.stattools.adfuller(spread, store=True, regresults=False)
+            is_stationary = False
+            if adf_result[0] < min(adf_result[2].values()) and adf_result[1] < 0.05:
+                is_stationary = True
+            adf_dict = {'is_stationary': is_stationary, 'adf_stat': adf_result[0], 'p_val': adf_result[1],
+                        'crit_val': adf_result[2]}
         except Exception as e:
             self.logger.error(f"Error: {e}")
             self.logger.error(
@@ -2471,6 +2482,9 @@ class PricePredict():
         pct_uncorr = uncorrelated_days / total_days
         # self.logger.info(f"Days: {total_days} Correlated Days: {correlated_days}  Uncorrelated Days: {uncorrelated_days}")
         # self.logger.info(f"Correlated Days: {pct_corr}%  Uncorrelated Days: {pct_uncorr}%")
+        coint_stationary = False
+        if is_cointegrated and is_stationary:
+            coint_stationary = True
         ret_dict = {'total_days': total_days,
                     'correlated_days': correlated_days,
                     'uncorrelated_days': uncorrelated_days,
@@ -2481,7 +2495,9 @@ class PricePredict():
                     'spearman_corr': spearman_corr,
                     'kendall_corr': kendall_corr,
                     'avg_corr': (pearson_raw_corr + pearson_nrm_corr + spearman_corr + kendall_corr) / 4,
+                    'coint_stationary': coint_stationary,
                     'coint_test': coint_dict,
+                    'adf_test': adf_dict,
                     }
 
         return ret_dict
