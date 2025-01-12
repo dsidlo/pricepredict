@@ -400,7 +400,7 @@ class Test_PricePredict(TestCase):
         agg_data = pp.aggregate_data(data, pp.period)
 
         # Check the data
-        self.assertEqual(208, agg_data.shape[0], "agg_data: Wrong length")
+        self.assertEqual(209, agg_data.shape[0], "agg_data: Wrong length")
         sum_1 = data.sum()
         sum_2 = agg_data.sum()
         # Volume is the only aggregate value that can be checked as the rest
@@ -667,19 +667,20 @@ class Test_PricePredict(TestCase):
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
         self.assertGreaterEqual(len(data), 1, "data: Wrong length")
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
-        self.assertEqual(12, features, "features: Wrong count")
-        self.assertEqual(469, len(dates_data), "dates_data: Wrong length")
-        self.assertEqual(470, len(aug_data), "aug_data: Wrong length")
+        self.assertEqual(19, features, "features: Wrong count")
+        self.assertEqual(470, len(dates_data), "dates_data: Wrong length")
+        # Added 1 period for the prediction
+        self.assertEqual(471, len(aug_data), "aug_data: Wrong length")
 
         # Scale the data
         scaled_data, scaler = pp.scale_data(aug_data)
-        self.assertEqual(470, len(scaled_data), "scaled_data: Wrong length")
+        self.assertEqual(471, len(scaled_data), "scaled_data: Wrong length")
         self.assertIsNotNone(scaler, "scaler: Wrong length")
 
         # Prepare the scaled data for model inputs
         X, y = pp.prep_model_inputs(scaled_data, features)
-        self.assertEqual(455, len(X), "X: Wrong length")
-        self.assertEqual(455, len(y), "y: Wrong length")
+        self.assertEqual(456, len(X), "X: Wrong length")
+        self.assertEqual(456, len(y), "y: Wrong length")
 
         # Train the model
         # Use a small batch size and epochs to test the model training
@@ -692,7 +693,7 @@ class Test_PricePredict(TestCase):
         save_op = getattr(model, 'save', None)
         self.assertTrue(callable(save_op), "model: 'save' method not found")
         self.assertIsNotNone(y_pred, "y_pred: is None")
-        self.assertEqual(91, len(y_pred), "y_pred: Wrong length")
+        self.assertEqual(92, len(y_pred), "y_pred: Wrong length")
         self.assertEqual(pp.PeriodWeekly, pp.period, f"period[{pp.period}]: Wrong period")
 
         # View the test prediction results

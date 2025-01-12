@@ -532,6 +532,10 @@ class PricePredict():
             self.logger.error(f"Error: No data for {ticker} from {date_start} to {date_end}")
             return None, None
 
+        # if 'Date' in data.index.names:
+        #     # Reset the index to release the date from the index.
+        #     data.reset_index()
+
         # If the column is a tuple, then we only want the first part of the tuple.
         if len(data) > 0:
             cols = data.columns
@@ -543,29 +547,28 @@ class PricePredict():
             data['Adj Close'] = data['Close']
             data = data[['Adj Close', 'Close', 'High', 'Low', 'Open', 'Volume']]
 
-        if data.index.name is None and isinstance(data.index, pd.DatetimeIndex):
-            # This happens when using yfinance_cache.
-            # Give the unnamed DateTimeIndex the name 'Date'.
-            data.index.name = 'Date'
+        # if data.index.name is None and isinstance(data.index, pd.DatetimeIndex):
+        #     # This happens when using yfinance_cache.
+        #     # Give the unnamed DateTimeIndex the name 'Date'.
+        #     data.index.name = 'Date'
 
-        if 'Date' != data.index.name:
-            if 'Datetime' == data.index.name:
-                # Rename the data's index.name to 'Date'
-                data.index.name = 'Date'
-            else:
-                self.logger.error(
-                    f"Error: No Date or Datetime in data.index.name for {ticker} from {date_start} to {date_end}")
-                return None, None
+        # if 'Date' != data.index.name:
+        #     if 'Datetime' == data.index.name:
+        #         # Rename the data's index.name to 'Date'
+        #         data.index.name = 'Date'
+        #     else:
+        #         self.logger.error(
+        #             f"Error: No Date or Datetime in data.index.name for {ticker} from {date_start} to {date_end}")
+        #         return None, None
 
         best_start_date = data.index[0].strftime('%Y-%m-%d')
         best_end_date = data.index[-1].strftime('%Y-%m-%d')
         # Create a data frome that contains all business days.
-        if self.period == self.PeriodWeekly:
-            all_days = pd.date_range(start=best_start_date, end=best_end_date, freq='W')
-        else:
-            all_days = pd.date_range(start=best_start_date, end=best_end_date, freq='B')
+        all_days = pd.date_range(start=best_start_date, end=best_end_date, freq='B')
         # Add rows into self_data that are not in ppo_data, such that fields other than 'Date' are NaN
-        data_nan_filled = data.reindex(all_days)
+        data_nan_filled = data.copy(deep=True)
+        data_nan_filled.index = pd.to_datetime(data_nan_filled.index)
+        data_nan_filled = data_nan_filled.reindex(all_days)
         # Interpolate the missing data in the dataframe, given the existing data.
         interpolated_data = data_nan_filled.interpolate(method='time')
         # Missing rows analysis on self_data
@@ -625,98 +628,124 @@ class PricePredict():
         # logger.info(data.tail(10))
 
         # Make a copy of the data to that we don't modify orig_data
-        data = data.copy(deep=True)
+        aug_data = data.copy(deep=True)
 
-        data['RSI'] = ta.rsi(data.Close, length=3);
+        aug_data['RSI'] = ta.rsi(aug_data.Close, length=3);
         feature_cnt += 1
-        # data['EMAF']=ta.ema(data.Close, length=3); feature_cnt += 1
-        # data['EMAM']=ta.ema(data.Close, length=6); feature_cnt += 1
-        data['EMAS'] = ta.ema(data.Close, length=9)
+        # aug_data['EMAF']=ta.ema(aug_data.Close, length=3); feature_cnt += 1
+        # aug_data['EMAM']=ta.ema(aug_data.Close, length=6); feature_cnt += 1
+        aug_data['EMAS'] = ta.ema(aug_data.Close, length=9)
         feature_cnt += 1
-        data['DPO3'] = ta.dpo(data.Close, length=3, lookahead=False, centered=False)
+        aug_data['DPO3'] = ta.dpo(aug_data.Close, length=3, lookahead=False, centered=False)
         feature_cnt += 1
-        data['DPO6'] = ta.dpo(data.Close, length=6, lookahead=False, centered=False)
+        aug_data['DPO6'] = ta.dpo(aug_data.Close, length=6, lookahead=False, centered=False)
         feature_cnt += 1
-        data['DPO9'] = ta.dpo(data.Close, length=9, lookahead=False, centered=False)
+        aug_data['DPO9'] = ta.dpo(aug_data.Close, length=9, lookahead=False, centered=False)
         feature_cnt += 1
 
         # logger.info("= After Adding DPO2 ========================================================")
-        # logger.info(data.tail(10))
+        # logger.info(aug_data.tail(10))
         #
         # On Balance Volume
-        if data['Volume'].iloc[-1] > 0:
-            data = data.join(ta.aobv(data.Close, data.Volume, fast=True, min_lookback=3, max_lookback=9))
+        if aug_data['Volume'].iloc[-1] > 0:
+            aug_data = aug_data.join(ta.aobv(aug_data.Close, aug_data.Volume, fast=True, min_lookback=3, max_lookback=9))
             feature_cnt += 7  # ta.aobv adds 7 columns
 
         # logger.info("= After Adding APBV ========================================================")
-        # logger.info(data.tail(10))
+        # logger.info(aug_data.tail(10))
 
         # Target is the difference between the adjusted close and the open price.
-        data['Target'] = data['Adj Close'] - data.Open
+        aug_data['Target'] = aug_data['Adj Close'] - aug_data.Open
         feature_cnt += 1
-        data['TargetH'] = data.High - data.Open
+        aug_data['TargetH'] = aug_data.High - aug_data.Open
         feature_cnt += 1
-        data['TargetL'] = data.Low - data.Open
+        aug_data['TargetL'] = aug_data.Low - aug_data.Open
         feature_cnt += 1
         # Shift the target up by one day.Target is the difference between the adjusted close and the open price.
         # That is, the target is the difference between the adjusted close and the open price.
         # Our model will predict the target close for the next day. So we shift the target up by one day.
-        data['Target'] = data['Target'].shift(-1);
-        data['TargetH'] = data['TargetH'].shift(-1)
-        data['TargetL'] = data['TargetL'].shift(-1)
+        aug_data['Target'] = aug_data['Target'].shift(-1);
+        aug_data['TargetH'] = aug_data['TargetH'].shift(-1)
+        aug_data['TargetL'] = aug_data['TargetL'].shift(-1)
 
         # 1 if the price goes up, 0 if the price goes down.
         # Not a feature: Needed to test prediction accuracy.
-        data['TargetClass'] = [1 if data['Target'].iloc[i] > 0 else 0 for i in range(len(data))]
+        aug_data['TargetClass'] = [1 if aug_data['Target'].iloc[i] > 0 else 0 for i in range(len(aug_data))]
         target_cnt = 1
 
         # The TargetNextClose is the adjusted close price for the next day.
         # This is the value we want to predict.
         # Not a feature: Needed to test prediction accuracy.
-        data['TargetNextClose'] = data['Adj Close'].shift(-1)
+        aug_data['TargetNextClose'] = aug_data['Adj Close'].shift(-1)
         target_cnt += 1
         # TargetNextHigh and TargetNextLow are the high and low prices for the next day.
-        data['TargetNextHigh'] = data['High'].shift(-1)
+        aug_data['TargetNextHigh'] = aug_data['High'].shift(-1)
         target_cnt += 1
         # TargetNextLow are the low prices for the next day.
-        data['TargetNextLow'] = data['Low'].shift(-1)
+        aug_data['TargetNextLow'] = aug_data['Low'].shift(-1)
         target_cnt += 1
 
-        # Before scaling the data, we need to use the last good value for rows that have NaN values.
-        data.ffill(inplace=True)
+        # Before scaling the aug_data, we need to use the last good value for rows that have NaN values.
+        aug_data.ffill(inplace=True)
 
-        # Reset the index of the dataframe.
-        data.reset_index(inplace=True)
+        # # Reset the index of the dataframe.
+        # aug_data.reset_index(inplace=True)
+        #
+        # if 'Date' not in aug_data.columns and aug_data['index'].dtype == '<M8[ns]':
+        #     # Rename the 'index' column to 'Date'
+        #     aug_data.rename(columns={'index': 'Date'}, inplace=True)
+        # if 'Date' not in aug_data.columns:
+        #     raise ValueError("Error: 'Date' column not found in aug_data.")
 
-        if 'Date' not in data.columns and data['index'].dtype == '<M8[ns]':
-            # Rename the 'index' column to 'Date'
-            data.rename(columns={'index': 'Date'}, inplace=True)
-        if 'Date' not in data.columns:
-            raise ValueError("Error: 'Date' column not found in data.")
+        # Save the date aug_data for later use.
+        if 'Date' in aug_data.columns:
+            # Copy the 'Date' Datetime column to the dates_data as a DataFrame.
+            dates_data = aug_data['Date'].copy()
+            dates_data.set_index('Date', inplace=True)
+            aug_data = aug_data.drop(['Date'], axis=1)
+            feature_cnt -= 1
+        elif 'Date' in data.index.names or 'Datetime' in data.index.names:
+            # Copy the index, which is a DatetimeIndex to the dates_data as a DataFrame.
+            aug_data.reset_index(inplace=True)
+            # Copy the 'Date' Datetime column to the dates_data as a DataFrame.
+            # dates_data is a DataFrame with the 'Date' column as the index, and no other columns.
+            if 'Date' in aug_data.columns:
+                # Normally, directly from yfinance, the column is named 'Date'.
+                dates_data = aug_data['Date'].copy()
+                aug_data = aug_data.drop(['Date'], axis=1)
+                feature_cnt -= 1
+            elif 'Datetime' in aug_data.columns:
+                # After caching the data, the column is named 'Datetime'.
+                dates_data = aug_data['Datetime'].copy()
+                aug_data = aug_data.drop(['Datetime'], axis=1)
+                feature_cnt -= 1
+        elif aug_data.index.dtype == '<M8[ns]':
+            # If the index is a DatetimeIndex, then we use the index as the date data.
+            # This does not remove a feature
+            dates_data = pd.Series(aug_data.index)
+            aug_data.index.rename('Date', inplace=True)
+            aug_data.reset_index(inplace=True)
+            aug_data.drop(['Date'], axis=1, inplace=True)
+            # Date col was never a feature, so we don't decrement feature_cnt.
+            feature_cnt -= 1
 
-        # Save the date data for later use.
-        if 'Date' in data.columns:
-            dates_data = data['Date'].copy()
-        elif 'Date' in data.index.names:
-            dates_data = data.index.copy()
-
-        data.drop(['Date'], axis=1, inplace=True)
+        # Drop the 'Close' column.
+        aug_data.drop(['Close'], axis=1, inplace=True);
         feature_cnt -= 1
-        data.drop(['Close'], axis=1, inplace=True)
-        feature_cnt -= 1
-        # data.drop(['Volume'], axis=1, inplace=True); feature_cnt -= 1
 
         # Add one more row to the data file, this will be our next day's prediction.
-        data = pd.concat([data, data[-1:]])
-        # And, reindex the dataframe.
-        data.reset_index(inplace=True)
+        aug_data = pd.concat([aug_data, aug_data[-1:]])
+        # # And, reindex the dataframe.
+        # aug_data.reset_index(inplace=True)
 
-        self.aug_data = data.copy(deep=True)
+        self.aug_data = aug_data.copy(deep=True)
         self.features = feature_cnt
         self.targets = target_cnt
-        self.date_data = dates_data.copy(deep=True)
+        self.date_data = dates_data
+        self.logger.info(f'*~*~*~> self.data_data: [{type(self.date_data)}]')
 
-        return data, feature_cnt, target_cnt, dates_data
+
+        return aug_data, feature_cnt, target_cnt, self.date_data
 
     def scale_data(self, data_set_in):
         """
@@ -1364,10 +1393,10 @@ class PricePredict():
         self.mean_squared_error = mse
         self.pred = y_pred
         self.pred_rescaled = pred_rescaled
-        self.dateStart_train = pd.to_datetime(self.date_data.iloc[0]).strftime("%Y-%m-%d")
-        self.dateEnd_train = pd.to_datetime(self.date_data.iloc[-1]).strftime("%Y-%m-%d")
-        self.dateStart_pred = pd.to_datetime(self.date_data.iloc[splitlimit + 1]).strftime("%Y-%m-%d")
-        self.dateEnd_pred = pd.to_datetime(self.date_data.iloc[-1]).strftime("%Y-%m-%d")
+        self.dateStart_train = self.date_data.iloc[0].strftime("%Y-%m-%d")
+        self.dateEnd_train = self.date_data.iloc[-1].strftime("%Y-%m-%d")
+        self.dateStart_pred = self.date_data.iloc[splitlimit + 1].strftime("%Y-%m-%d")
+        self.dateEnd_pred = self.date_data.iloc[-1].strftime("%Y-%m-%d")
         self.model = model
 
         self.logger.info(f"=== Model Training Completed [{self.ticker}] [{self.period}]...")
