@@ -83,10 +83,12 @@ class Test_PricePredict(TestCase):
         ticker = "AAPL"
         ticker_data = pp.chk_yahoo_ticker(ticker)
         self.assertEqual("AAPL", pp.ticker_data.get('symbol'), f"ticker[{pp.ticker_data.get('symbol')}]: Ticker should be AAPL")
+        self.assertIsNotNone(ticker_data, f"ticker[{ticker_data}]: Ticker returned should be None")
 
         ticker = "Test-AAPL"
         ticker_data = pp.chk_yahoo_ticker(ticker)
         self.assertEqual("AAPL", pp.ticker_data.get('symbol'), f"ticker[{pp.ticker_data.get('symbol')}]: Ticker should be AAPL")
+        self.assertIsNotNone(ticker_data, f"ticker[{ticker_data}]: Ticker returned should be None")
 
         ticker = "yy043xx"
         ticker_data = pp.chk_yahoo_ticker(ticker)
@@ -101,15 +103,42 @@ class Test_PricePredict(TestCase):
         start_date = "2020-01-01"
         end_date = "2023-12-31"
         # Load data from Yahoo Finance
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=True)
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
         self.assertEqual(pp.ticker, ticker, "Wrong ticker")
 
         # Now try loading a different ticker
         ticker = "TSLA"
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        pp.period = PricePredict.PeriodDaily
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=True)
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
         self.assertEqual(pp.ticker, ticker, "Wrong ticker")
+
+        # Now try loading a different ticker
+        ticker = "EURUSD=X"
+        pp.ticker = ticker
+        pp.period = PricePredict.PeriodDaily
+        pp.orig_data = None
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=True)
+        self.assertGreaterEqual(len(data), 1, "Wrong data length")
+        self.assertEqual(pp.ticker, ticker, "Wrong ticker")
+        # Now test fetch caching behaviour
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertGreaterEqual(len(data), 1, "Wrong data length")
+        self.assertEqual(pp.ticker, ticker, "Wrong ticker")
+
+        # Now weekly data
+        ticker = "IBM"
+        pp.ticker = ticker
+        pp.period = PricePredict.PeriodWeekly
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertGreaterEqual(len(data), 1, "Wrong data length")
+        self.assertEqual(pp.ticker, ticker, "Wrong ticker")
+        # Now test weekly caching behaviour
+        data, features = pp.fetch_data_yahoo(ticker, '2021-3-10', '2022-4-15', force_fetch=True)
+        self.assertGreaterEqual(len(data), 1, "Wrong data length")
+        self.assertEqual(pp.ticker, ticker, "Wrong ticker")
+
 
         # Now try loading a different ticker
         ticker = "TSLA"
@@ -371,7 +400,7 @@ class Test_PricePredict(TestCase):
         agg_data = pp.aggregate_data(data, pp.period)
 
         # Check the data
-        self.assertEqual(209, agg_data.shape[0], "agg_data: Wrong length")
+        self.assertEqual(208, agg_data.shape[0], "agg_data: Wrong length")
         sum_1 = data.sum()
         sum_2 = agg_data.sum()
         # Volume is the only aggregate value that can be checked as the rest
@@ -469,13 +498,18 @@ class Test_PricePredict(TestCase):
         mdl_end_date = "2024-07-30"
 
         model_path = Test_PricePredict._create_test_model(self, pp, ticker, test_ticker, mdl_start_date, mdl_end_date)
+
+        # Model file dates
+        mdl_start_date = pp.date_start
+        mdl_end_date = pp.date_end
+
         # Create a Model that can be loaded...
         # =========================================
 
         # =========================================
         # Load data from Yahoo Finance
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
-        self.assertEqual(39, len(data), "data: Wrong length")
+        self.assertEqual(41, len(data), "data: Wrong length")
         data, features, targets, dates = pp.augment_data(data, features)
         self.assertEqual(19, features, "Wrong feature count")
 
@@ -533,7 +567,7 @@ class Test_PricePredict(TestCase):
         # =========================================
         # Load data from Yahoo Finance...
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
-        self.assertEqual(291, len(data), "data: Wrong length")
+        self.assertEqual(303, len(data), "data: Wrong length")
 
         # Load am existing model file...
         model_path = pp.model_dir + test_ticker + f"_{pp.period}_" + mdl_start_date + "_" + mdl_end_date + ".keras"
@@ -545,19 +579,19 @@ class Test_PricePredict(TestCase):
         # Augment the data
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
         self.assertEqual(19, features, "features: Wrong count")
-        self.assertEqual(291, len(dates_data), "dates_data: Wrong length")
-        self.assertEqual(292, len(aug_data), "aug_data: Wrong length")
+        self.assertEqual(303, len(dates_data), "dates_data: Wrong length")
+        self.assertEqual(304, len(aug_data), "aug_data: Wrong length")
 
         # Scale the data
         scaled_data, scaler = pp.scale_data(aug_data)
-        self.assertEqual(292, len(scaled_data), "scaled_data: Wrong length")
+        self.assertEqual(304, len(scaled_data), "scaled_data: Wrong length")
         self.assertIsNotNone(scaler, "scaler: Wrong length")
 
         # Prepare the scaled data for model inputs
         X, y = pp.prep_model_inputs(scaled_data, features)
         # X and Y are shortened by the number backcandles used in the model
-        self.assertEqual(292 - pp.back_candles, len(X), "X: Wrong length")
-        self.assertEqual(292 - pp.back_candles, len(y), "y: Wrong length")
+        self.assertEqual(304 - pp.back_candles, len(X), "X: Wrong length")
+        self.assertEqual(304 - pp.back_candles, len(y), "y: Wrong length")
         # Delete the model file that we crated and loaded
 
         if os.path.isfile(model_path):
@@ -578,7 +612,7 @@ class Test_PricePredict(TestCase):
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
         self.assertGreaterEqual(len(data), 1, "data: Wrong length")
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
-        self.assertEqual(features, 19, "features: Wrong count")
+        self.assertEqual(19, features, "features: Wrong count")
         self.assertEqual(1006, len(dates_data), "dates_data: Wrong length")
         self.assertEqual(1007, len(aug_data), "aug_data: Wrong length")
 
@@ -633,19 +667,19 @@ class Test_PricePredict(TestCase):
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
         self.assertGreaterEqual(len(data), 1, "data: Wrong length")
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
-        self.assertEqual(features, 19, "features: Wrong count")
-        self.assertEqual(470, len(dates_data), "dates_data: Wrong length")
-        self.assertEqual(471, len(aug_data), "aug_data: Wrong length")
+        self.assertEqual(12, features, "features: Wrong count")
+        self.assertEqual(469, len(dates_data), "dates_data: Wrong length")
+        self.assertEqual(470, len(aug_data), "aug_data: Wrong length")
 
         # Scale the data
         scaled_data, scaler = pp.scale_data(aug_data)
-        self.assertEqual(471, len(scaled_data), "scaled_data: Wrong length")
+        self.assertEqual(470, len(scaled_data), "scaled_data: Wrong length")
         self.assertIsNotNone(scaler, "scaler: Wrong length")
 
         # Prepare the scaled data for model inputs
         X, y = pp.prep_model_inputs(scaled_data, features)
-        self.assertEqual(456, len(X), "X: Wrong length")
-        self.assertEqual(456, len(y), "y: Wrong length")
+        self.assertEqual(455, len(X), "X: Wrong length")
+        self.assertEqual(455, len(y), "y: Wrong length")
 
         # Train the model
         # Use a small batch size and epochs to test the model training
@@ -658,7 +692,7 @@ class Test_PricePredict(TestCase):
         save_op = getattr(model, 'save', None)
         self.assertTrue(callable(save_op), "model: 'save' method not found")
         self.assertIsNotNone(y_pred, "y_pred: is None")
-        self.assertEqual(92, len(y_pred), "y_pred: Wrong length")
+        self.assertEqual(91, len(y_pred), "y_pred: Wrong length")
         self.assertEqual(pp.PeriodWeekly, pp.period, f"period[{pp.period}]: Wrong period")
 
         # View the test prediction results
@@ -1171,95 +1205,103 @@ class Test_PricePredict(TestCase):
         data2, features2 = pp2.fetch_data_yahoo(ticker2, start_date, end_date)
         self.assertGreaterEqual(1006, len(data2), "data2: Wrong length")
 
-        # Perform the correlation analysis
+        # Perform the corr analysis
         ret_dict = pp1.periodic_correlation(pp2)
         self.assertIsNotNone(ret_dict, "periodic_correlation: Returned None")
         self.assertEqual(PricePredict.PeriodDaily, pp1.period, f"period[{pp1.period}]: Wrong period")
         self.assertEqual(PricePredict.PeriodDaily, pp2.period, f"pp2.period[{pp2.period}]: Wrong period")
-        exp_dict = {'adf_test': {'adf_stat': -2.387161436363045,
-                                  'crit_val': {'1%': -3.436959175494265,
-                                               '10%': -2.568323660940752,
-                                               '5%': -2.8644579524531975},
+        exp_dict = {'adf_test': {'adf_stat': -2.43056456085085,
+                                  'crit_val': {'1%': -3.436671659540904,
+                                               '10%': -2.5682561222519897,
+                                               '5%': -2.8643311477003515},
                                   'is_stationary': False,
-                                  'p_val': 0.14539283396434632},
-                     'avg_corr': 0.45815648341115,
+                                  'p_val': 0.13329493296863093},
+                     'avg_corr': 0.4612656960338023,
                      'coint_stationary': False,
-                     'coint_test': {'coint_measure': 0.7913338658535446,
-                                    'crit_val': [-3.907392469311905,
-                                                 -3.3422286067719074,
-                                                 -3.048681218209777],
+                     'coint_test': {'crit_val': [-3.9069914952278393,
+                                                 -3.342005748582839,
+                                                 -3.048526669425781],
                                     'is_cointegrated': False,
-                                    'p_val': 0.7913338658535446,
-                                    't_stat': -1.417836901303577},
-                     'correlated_days': 675,
-                     'kendall_corr': 0.34496343125632,
-                     'pct_corr': 0.6723107569721115,
-                     'pct_uncorr': 0.32768924302788843,
-                     'pearson_nrm_corr': 0.34496343125631956,
-                     'pearson_raw_corr': 0.7977356398756404,
-                     'spearman_corr': 0.34496343125631995,
-                     'total_days': 1004,
-                     'uncorrelated_days': 329}
+                                    'p_val': 0.7058093673741059,
+                                    't_stat': -1.63519285678491},
+                     'corr_period_len': 1042,
+                     'correlated_days': 703,
+                     'end_date': '2023-12-29 00:00:00',
+                     'kendall_corr': 0.34916866634429855,
+                     'pct_corr': 0.6746641074856046,
+                     'pct_uncorr': 0.3253358925143954,
+                     'pearson_nrm_corr': 0.3491686663442987,
+                     'pearson_raw_corr': 0.7975567851023134,
+                     'spearman_corr': 0.34916866634429855,
+                     'start_date': '2020-01-02 00:00:00',
+                     'total_days': 1042,
+                     'uncorrelated_days': 339}
         self.assertEqual(exp_dict, ret_dict, f"exp_dict[{exp_dict}] does not match ret_dict[{ret_dict}]")
 
-        # Perform the correlation analysis for the last 50 days
+        # Perform the corr analysis for the last 50 days
         ret_dict = pp1.periodic_correlation(pp2, pc_period_len=50)
         self.assertIsNotNone(ret_dict, "periodic_correlation: Returned None")
         self.assertEqual(PricePredict.PeriodDaily, pp1.period, f"period[{pp1.period}]: Wrong period")
         self.assertEqual(PricePredict.PeriodDaily, pp2.period, f"pp2.period[{pp2.period}]: Wrong period")
-        exp_dict = {'adf_test': {'adf_stat': -1.901810878853289,
-                                  'crit_val': {'1%': -3.5745892596209488,
-                                               '10%': -2.6000391840277777,
-                                               '5%': -2.9239543084490744},
+        exp_dict = {'adf_test': {'adf_stat': -2.040742547566369,
+                                  'crit_val': {'1%': -3.5714715250448363,
+                                               '10%': -2.5993358475635153,
+                                               '5%': -2.922629480573571},
                                   'is_stationary': False,
-                                  'p_val': 0.3312096962929829},
-                     'avg_corr': 0.48399796715104837,
+                                  'p_val': 0.26899942582241865},
+                     'avg_corr': 0.4611710837730938,
                      'coint_stationary': False,
-                     'coint_test': {'coint_measure': 0.1288591013147209,
-                                    'crit_val': [-4.139156232638889,
-                                                 -3.4663851215277774,
-                                                 -3.1339888888888887],
+                     'coint_test': {'crit_val': [-4.133911928363182,
+                                                 -3.4636676509787585,
+                                                 -3.1321379633486046],
                                     'is_cointegrated': False,
-                                    'p_val': 0.1288591013147209,
-                                    't_stat': -2.9260016336866115},
+                                    'p_val': 0.16023348527019038,
+                                    't_stat': -2.8173281558477785},
+                     'corr_period_len': 50,
                      'correlated_days': 33,
-                     'kendall_corr': 0.34233931937116713,
-                     'pct_corr': 0.673469387755102,
-                     'pct_uncorr': 0.32653061224489793,
-                     'pearson_nrm_corr': 0.34233931937116724,
-                     'pearson_raw_corr': 0.9089739104906921,
-                     'spearman_corr': 0.3423393193711671,
-                     'total_days': 49,
-                     'uncorrelated_days': 16}
+                     'end_date': '2023-12-29 00:00:00',
+                     'kendall_corr': 0.3136646480382985,
+                     'pct_corr': 0.66,
+                     'pct_uncorr': 0.34,
+                     'pearson_nrm_corr': 0.3136646480382986,
+                     'pearson_raw_corr': 0.9036903909774795,
+                     'spearman_corr': 0.3136646480382985,
+                     'start_date': '2023-10-23 00:00:00',
+                     'total_days': 50,
+                     'uncorrelated_days': 17}
         self.assertEqual(exp_dict, ret_dict, f"exp_dict[{exp_dict}] does not match ret_dict[{ret_dict}]")
 
-        # Perform the correlation analysis for the last 7 days
+        # Perform the corr analysis for the last 7 days
         ret_dict = pp1.periodic_correlation(pp2, pc_period_len=7)
         self.assertIsNotNone(ret_dict, "periodic_correlation: Returned None")
         self.assertEqual(PricePredict.PeriodDaily, pp1.period, f"period[{pp1.period}]: Wrong period")
         self.assertEqual(PricePredict.PeriodDaily, pp2.period, f"pp2.period[{pp2.period}]: Wrong period")
-        exp_dict = {'adf_test': {'adf_stat': -2.3136161919999085,
+        exp_dict = {'adf_test': {'adf_stat': -1.8090807034383853,
                                   'crit_val': {'1%': -6.045114,
                                                '10%': -2.98681,
                                                '5%': -3.9292800000000003},
                                   'is_stationary': False,
-                                  'p_val': 0.16761407729461858},
-                     'avg_corr': 0.1557051240723692,
+                                  'p_val': 0.3759627871802797},
+                     'avg_corr': 0.29482814967742954,
                      'coint_stationary': False,
-                     'coint_test': {'coint_measure': 0.9859002580259643,
-                                    'crit_val': [-7.4279, -4.83107, -4.0014899999999995],
+                     'coint_test': {'crit_val': [-6.653062222222222,
+                                                 -4.544007777777777,
+                                                 -3.826872222222222],
                                     'is_cointegrated': False,
-                                    'p_val': 0.9859002580259643,
-                                    't_stat': 0.0},
+                                    'p_val': 0.5122818639542157,
+                                    't_stat': -2.0312853166010942},
+                     'corr_period_len': 7,
                      'correlated_days': 4,
-                     'kendall_corr': 0.4472135954999579,
-                     'pct_corr': 0.6666666666666666,
-                     'pct_uncorr': 0.3333333333333333,
-                     'pearson_nrm_corr': 0.4472135954999579,
-                     'pearson_raw_corr': -0.7188202902103971,
-                     'spearman_corr': 0.4472135954999579,
-                     'total_days': 6,
-                     'uncorrelated_days': 2}
+                     'end_date': '2023-12-29 00:00:00',
+                     'kendall_corr': 0.35355339059327384,
+                     'pct_corr': 0.5714285714285714,
+                     'pct_uncorr': 0.42857142857142855,
+                     'pearson_nrm_corr': 0.35355339059327373,
+                     'pearson_raw_corr': 0.11865242692989675,
+                     'spearman_corr': 0.3535533905932738,
+                     'start_date': '2023-12-21 00:00:00',
+                     'total_days': 7,
+                     'uncorrelated_days': 3}
         self.assertEqual(exp_dict, ret_dict, f"exp_dict[{exp_dict}] does not match ret_dict[{ret_dict}]")
 
     def test_seasonality(self):
@@ -1281,17 +1323,17 @@ class Test_PricePredict(TestCase):
         # =========================================
         # Load data from Yahoo Finance
         data1, features1 = pp.fetch_data_yahoo(ticker, start_date, end_date)
-        self.assertGreaterEqual(2408, len(data1), "data1: Wrong length")
+        self.assertGreaterEqual(2500, len(data1), "data1: Wrong length")
 
         # Perform the seasonality analysis
         seasonal_dec = pp.seasonality(sd_period_len=30)
         self.assertIsNotNone(seasonal_dec, "seasonality: Returned None")
-        self.assertEqual(2409, seasonal_dec.observed.shape[0], f"period[{pp.period}]: Wrong period")
+        self.assertEqual(2498, seasonal_dec.observed.shape[0], f"period[{pp.period}]: Wrong period")
 
         seasonal_dec = pp.seasonality(sd_period_len=30, save_chart=True,
                                        show_chart=True)
         self.assertIsNotNone(seasonal_dec, "seasonality: Returned None")
-        self.assertEqual(2409, seasonal_dec.observed.shape[0], f"period[{pp.period}]: Wrong period")
+        self.assertEqual(2498, seasonal_dec.observed.shape[0], f"period[{pp.period}]: Wrong period")
         self.assertTrue(os.path.isfile(pp.seasonal_chart_path), f"pp.graph_path: File does not exist [{pp.period}]")
         if os.path.isfile(pp.seasonal_chart_path):
             os.remove(pp.seasonal_chart_path)

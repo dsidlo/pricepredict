@@ -783,7 +783,6 @@ def add_new_symbols(st, exp_sym, syms):
                             model_dir=model_dir,
                             chart_dir=chart_dir,
                             preds_dir=preds_dir)
-        pp_d.last_analysis = datetime.now()
         st.session_state[ss_SymDpps_d][sym] = pp_d
         # Create a Weekly PricePredict object for the symbol
         pp_w = PricePredict(ticker=sym,
@@ -791,7 +790,6 @@ def add_new_symbols(st, exp_sym, syms):
                             model_dir=model_dir,
                             chart_dir=chart_dir,
                             preds_dir=preds_dir)
-        pp_w.last_analysis = datetime.now()
         st.session_state[ss_SymDpps_w][sym] = pp_w
 
     txt = f"New Symbols Added: {added_symbols}"
@@ -975,11 +973,11 @@ def display_symbol_charts(interactive_charts=True):
                 logger.error(f"Symbol [{img_sym}] not found in PricePredict objects")
             else:
                 pp = st.session_state[ss_SymDpps_d][img_sym]
-                expdr_corr = st.expander("**Correlations** (Coint PValues < 0.05 Good!)", expanded=False)
+                expdr_corr = st.expander("**Correlations**", expanded=False)
                 col1, col2, col3 = expdr_corr.columns(3)
 
                 col1.markdown('**Top 10 Cointegrated**')
-                df_to10coint = pd.DataFrame(data=pp.top10coint, columns=['Symbol', 'Coint PValue'])
+                df_to10coint = pd.DataFrame(data=pp.top10coint, columns=['Symbol', 'Pair'])
                 styl_to10coint = df_to10coint.style.set_properties(**{'boarder': '2px solid #ccc'})
                 col1.table(styl_to10coint)
 
@@ -1034,7 +1032,7 @@ def display_symbol_charts(interactive_charts=True):
                             else:
                                 expdr_biz.markdown(f"**{key}**: {ticker_data[key]}")
                     else:
-                        st.markdown(f"**No Data Ticker Data Available**")
+                        st.markdown(f"**No Ticker Data Available**")
 
     if (('gen_weekly_chart' in st.session_state and st.session_state.gen_weekly_chart
          or ('gen_daily_chart' in st.session_state and st.session_state.gen_daily_chart))):
@@ -1130,8 +1128,7 @@ def analyze_symbols(st, prog_bar, df_symbols,
                 # Get the datetime of 5 days ago
                 five_days_ago = datetime.now() - timedelta(days=7)
                 # This will force an update of the ppw object
-                ppw.last_analysis = datetime.now()
-                ppw.force_training = True
+                ppw.last_analysis = five_days_ago
 
             logger.info(f"Weekly - Pull data for model: {row.Symbol}")
             try:
@@ -1160,28 +1157,30 @@ def analyze_symbols(st, prog_bar, df_symbols,
 
             if st.session_state[ss_forceTraining]:
                 ppd.orig_data = None
-            if (ppd.orig_data is None
-                or row.Trend == ''
-                or row.WklyPrdStg == 0.0):
+            if ppd.orig_data is None or row.Trend == '' or row.WklyPrdStg == 0.0:
                 # Get the datetime of 5 days ago
                 five_days_ago = datetime.now() - timedelta(days=3)
                 # This will force an update of the ppd object
-                ppd.last_analysis = datetime.now()
+                ppd.last_analysis = five_days_ago
                 ppd.force_training = True
 
             logger.info(f"Daily - Pull data for model: {row.Symbol}")
-            try:
-                task_pull_data(row.Symbol, ppd)
-                logger.info(f"Daily - Train and Predict: {row.Symbol}")
-                # future = executor.submit(task_train_predict_report, row.Symbol, ppd)
-                # futures.append(future)
-                tm.submit(task_train_predict_report, row.Symbol, ppd,
-                          added_syms=added_syms,
-                          force_training=force_training,
-                          force_analysis=force_analysis)
-                total_syms += 1
-            except Exception as e:
-                logger.error(f"Error pull-train-predict on symbol: {row.Symbol}\n{e}")
+            twenty4_hours_ago = datetime.now() - timedelta(hours=24)
+            if ppd.last_analysis < twenty4_hours_ago:
+                try:
+                    task_pull_data(row.Symbol, ppd)
+                    logger.info(f"Daily - Train and Predict: {row.Symbol}")
+                    # future = executor.submit(task_train_predict_report, row.Symbol, ppd)
+                    # futures.append(future)
+                    tm.submit(task_train_predict_report, row.Symbol, ppd,
+                              added_syms=added_syms,
+                              force_training=force_training,
+                              force_analysis=force_analysis)
+                    total_syms += 1
+                except Exception as e:
+                    logger.error(f"Error pull-train-predict on symbol: {row.Symbol}\n{e}")
+            else:
+                logger.info(f"Daily - Predict Object is already up-to-date: {row.Symbol}")
 
             i += 1
             # Update the progress bar
@@ -1264,74 +1263,6 @@ def analyze_symbols(st, prog_bar, df_symbols,
         print(f"Deleted {del_1min_charts} 1Min Chart images")
 
 
-def load_pp_objects__(st):
-    sym_dpps_d_ = {}
-    sym_dpps_w_ = {}
-
-    min_dil_size = 70000
-
-    # Check if the PricePredict objects files exist
-    if not os.path.exists(dill_sym_dpps_d) or not os.path.exists(dill_sym_dpps_w):
-        logger.error("PricePredict object files do not exist")
-        st.session_state[ss_SymDpps_d] = sym_dpps_d_
-        st.session_state[ss_SymDpps_w] = sym_dpps_w_
-        sync_dpps_objects(st, None)
-        return sym_dpps_d_, sym_dpps_w_
-
-    # Make sure that files are not zero length
-    if (os.path.getsize(dill_sym_dpps_d) > min_dil_size
-            and os.path.getsize(dill_sym_dpps_w) > min_dil_size):
-        # Load PricePredict objects
-        logger.info("Loading PricePredict objects")
-        try:
-            with open(dill_sym_dpps_d, "rb") as f:
-                sym_dpps_d_ = PricePredict.unserialize(f)
-            with open(dill_sym_dpps_w, "rb") as f:
-                sym_dpps_w_ = PricePredict.unserialize(f)
-            # Create Backups files after a successful load...
-            # Copy the PricePredict objects to the backup files
-            logger.info("Copying PricePredict objects to backup files")
-            shutil.copy(dill_sym_dpps_d, dillbk_sym_dpps_d)
-            shutil.copy(dill_sym_dpps_w, dillbk_sym_dpps_w)
-
-        except Exception as e:
-            logger.error(f"Error loading PricePredict objects via dill: {e}")
-    else:
-        logger.error("Error a PricePredict object is too small")
-        logger.error("Restoring picked PricePredict objects from backup")
-        if (os.path.getsize(dillbk_sym_dpps_d) > min_dil_size
-                and os.path.getsize(dillbk_sym_dpps_w) > min_dil_size):
-            try:
-                with open(dillbk_sym_dpps_d, "rb") as f:
-                    sym_dpps_d_ = PricePredict.unserialize(f)
-                with open(dillbk_sym_dpps_w, "rb") as f:
-                    sym_dpps_w_ = PricePredict.unserialize(f)
-            except Exception as e:
-                logger.error(f"Error loading PricePredict backup objects via dill: {e}")
-        else:
-            logger.error("Error the backup PricePredict object file is too small")
-            logger.error("PricePredict objects were not restored")
-
-    if sym_dpps_d_ is None:
-        # Add a dummy PricePredict object so that other logic doesn't break
-        sym_dpps_d_['___'] = PricePredict(ticker='___', period=PricePredict.PeriodDaily,
-                                          model_dir=model_dir,
-                                          chart_dir=chart_dir,
-                                          preds_dir=preds_dir)
-    if sym_dpps_w_ is None:
-        # Add a dummy PricePredict object so that other logic doesn't break
-        sym_dpps_w_['___'] = PricePredict(ticker='___', period=PricePredict.PeriodWeekly,
-                                          model_dir=model_dir,
-                                          chart_dir=chart_dir,
-                                          preds_dir=preds_dir)
-
-    st.session_state[ss_SymDpps_d] = sym_dpps_d_
-    st.session_state[ss_SymDpps_w] = sym_dpps_w_
-
-    sync_dpps_objects(st, None)
-
-    return sym_dpps_d_, sym_dpps_w_
-
 def load_pp_objects(st):
 
     logger.debug("Loading PricePredict objects..,")
@@ -1375,13 +1306,15 @@ def load_pp_objects(st):
             if period == 'W':
                 try:
                     with open(entry, "rb") as f:
-                        sym_dpps_w_[sym] = PricePredict.unserialize(f)
+                        cobj = f.read()
+                        sym_dpps_w_[sym] = PricePredict.unserialize(cobj)
                 except Exception as e:
                     logger.warning(f"Error loading PricePredict object [{sym}]: {e}")
             elif period == 'D':
                 try:
                     with open(entry, "rb") as f:
-                        sym_dpps_d_[sym] = PricePredict.unserialize(f)
+                        cobj = f.read()
+                        sym_dpps_d_[sym] = PricePredict.unserialize(cobj)
                 except Exception as e:
                     logger.warning(f"Error loading PricePredict object [{sym}]: {e}")
             i += 1
@@ -1394,6 +1327,7 @@ def load_pp_objects(st):
     prog_bar.empty()
 
     return sym_dpps_d_, sym_dpps_w_
+
 
 def sync_dpps_objects(st, prog_bar):
     logger.info("Remove PricePredict objects that are not in the DataFrame")
@@ -1477,40 +1411,6 @@ def sync_dpps_objects(st, prog_bar):
             st.session_state[ss_SymDpps_w][sym] = pp
 
 
-def store_pp_objects__(st, prog_bar):
-    # Seems not to be used anymore...
-    # Likely to be removed in the future
-    sync_dpps_objects(st, prog_bar)
-    logger.info("Saving PricePredict objects (Daily Object)...")
-    st.session_state['exp_sym'].info("Saving PricePredict Daily objects...")
-    # Save out the PricePredict objects
-    sym_dpps_d_ = st.session_state[ss_SymDpps_d]
-    try:
-        if len(sym_dpps_d_) > 0:
-            with open(dill_sym_dpps_d, "wb") as f:
-                f.write(sym_dpps_d_.serialize_me())
-    except Exception as e:
-        logger.error(f"Error {dill_sym_dpps_d} - len[{len(sym_dpps_d_)}]: {e}")
-        bo = dill.detect.badobjects(sym_dpps_d_, depth=2)
-        logger.error(f"Bad objects in [{sym_dpps_d_.ticker}]:w: {bo}")
-        objgraph.show_refs(sym_dpps_d_, filename=f'objgraph_{sym_dpps_d_.ticker}_dpp_d.png')
-    st.session_state['exp_sym'].error(f"Error saving Daily PricePredict objects: {e}")
-
-    logger.info("Saving PricePredict objects (Weekly Object)...")
-    st.session_state['exp_sym'].info("Saving PricePredict Weekly objects...")
-    sym_dpps_w_ = st.session_state[ss_SymDpps_w]
-    try:
-        if len(sym_dpps_w_) > 0:
-            with open(dill_sym_dpps_w, "wb") as f:
-                f.write(sym_dpps_w_.serialize_me())
-    except Exception as e:
-        logger.error(f"Error saving  {dill_sym_dpps_w} - len[{len(sym_dpps_w_)}]: {e}")
-        bo = dill.detect.badobjects(sym_dpps_w_, depth=2)
-        logger.error(f"Bad objects in [{sym_dpps_w_.ticker}]:w: {bo}")
-        objgraph.show_refs(sym_dpps_w_, filename=f'objgraph_{sym_dpps_w_.ticker}_dpp_d.png')
-        st.session_state['exp_sym'].error(f"Error saving Weekly PricePredict objects: {e}")
-
-
 def store_pp_objects(st, prog_bar):
 
     sync_dpps_objects(st, prog_bar)
@@ -1518,11 +1418,14 @@ def store_pp_objects(st, prog_bar):
     logger.info("Saving PricePredict objects (Weekly Object)...")
 
     failed_ppws = []
+    i = 0
+    total_syms = len(st.session_state[ss_SymDpps_w])
     for sym_w in st.session_state[ss_SymDpps_w]:
         ppw = st.session_state[ss_SymDpps_w][sym_w]
         if ppw is not None:
             ticker = ppw.ticker
             if ppw.date_data is None:
+                i += 1
                 continue
             last_date = ppw.date_data.iloc[-1].strftime("%Y-%m-%d")
             period = ppw.period
@@ -1537,12 +1440,18 @@ def store_pp_objects(st, prog_bar):
                 objgraph.show_refs(sym_dpps_w_, filename=f'objgraph_{ppw.ticker}_dpp_d.png')
                 logger.error(f"Error saving PricePredict object [{sym_w}]: {e}")
                 failed_ppws.append(sym_w)
+        i += 1
+        # Update the progress bar
+        prog_bar.progress(int(i / total_syms * 100), f"Saving Weekly Objects: {ppw.ticker} ({i}/{total_syms})")
+
     if len(failed_ppws) > 0:
         st.warning(f"Failed to save PricePredict objects: {failed_ppws}")
 
     logger.info("Saving PricePredict objects (Daily Object)...")
 
-    failed_ppws = []
+    failed_ppds = []
+    i = 0
+    total_syms = len(st.session_state[ss_SymDpps_d])
     for sym_d in st.session_state[ss_SymDpps_d]:
         ppd = st.session_state[ss_SymDpps_d][sym_d]
         if ppd is not None:
@@ -1561,9 +1470,14 @@ def store_pp_objects(st, prog_bar):
                 logger.error(f"Bad objects in [{ppd.ticker}]:w: {bo}")
                 objgraph.show_refs(sym_dpps_w_, filename=f'objgraph_{ppd.ticker}_dpp_d.png')
                 logger.error(f"Error saving PricePredict object [{sym_d}]: {e}")
-                failed_ppws.append(sym_d)
+                failed_ppds.append(sym_d)
+        i += 1
+        # Update the progress bar
+        prog_bar.progress(int(i / total_syms * 100), f"Saving Daily Objects: {ppd.ticker} ({i}/{total_syms})")
+
     if len(failed_ppws) > 0:
-        st.warning(f"Failed to save PricePredict objects: {failed_ppws}")
+        st.warning(f"Failed to save PricePredict objects: {failed_ppds}")
+
 
 def task_pull_data(symbol_, dpp):
     # Get datetime 24 hours ago
@@ -1608,7 +1522,7 @@ def task_train_predict_report(symbol_, dpp, added_syms=None,
 
     if dpp.last_analysis is not None:
         if dpp.last_analysis > ago24hrs and force_analysis is False and dpp.model is not None:
-            logger.info(f"PricePredict object is already uptodate: {symbol_}")
+            logger.info(f"PricePredict object is already up-to-date: {symbol_}")
             return symbol_, dpp
     # Process the cached data as needed...
     # - Trains and Saves a new model if needed
@@ -1790,13 +1704,13 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
 
 def sym_correlations(prd, st, sym_dpps, prog_bar):
     """
-    This procedure performs correlation analysis for each PricePredict object
+    This procedure performs corr analysis for each PricePredict object
     against all other PricePredict objects amd update the PricePredict object's
     top10corr, top10xcorr, and top10coint properties.
     """
     logger.debug(f"Calculating Period [{prd}] Correlations...")
 
-    # Minimum number of data points required for correlation calculations
+    # Minimum number of data points required for corr calculations
     min_data_points = 200
     # Data points to request from Yahoo if data is needed
     req_data_points = 400
@@ -1859,10 +1773,12 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
                     logger.info(f"1: Symbol source:[{ssym} {source_sym.period}] [{len_}] has less than {min_data_points}"
                                 + " data points. Wont calculate correlations.")
                     continue
-
-                corr = target_sym.periodic_correlation(source_sym)
-                sym_corr[(tsym, ssym)] = corr
-
+                try:
+                    corr = target_sym.periodic_correlation(source_sym)
+                    sym_corr[(tsym, ssym)] = corr
+                except Exception as e:
+                    logger.error(f"Error calculating corr for [{tsym}:{ssym}] period[{ssym.period}]: {e}")
+                    continue
     corrs = []
     i = 0
     item_cnt = len(sym_corr)
@@ -1876,8 +1792,9 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
 
         corrs.append((ts, (round(sym_corr[ts]['avg_corr'], 5),
                            round(sym_corr[ts]['pct_uncorr'], 5),
-                           round(sym_corr[ts]['coint_test']['coint_measure'], 5),
-                           round(sym_corr[ts]['coint_test']['p_val'], 5),)))
+                           ('0-T  | ' if sym_corr[ts]['coint_stationary'] else '1-F | '
+                            + "{:.3f}".format(sym_corr[ts]['coint_test']['p_val']) + ' | '
+                            + "{:.3f}".format(sym_corr[ts]['adf_test']['p_val'])))))
 
     # corrs[x] is the same as tup below
     # tup[x]
@@ -1889,14 +1806,13 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
     # tup[indx_corr_vals][x]
     indx_avg_corr = 0
     indx_pct_uncorr = 1
-    indx_coint_measure = 2
-    indx_coint_p_val = 3
+    indx_coint = 2
 
     # Sort the correlations by the pct_uncorr value
-    # tup[1][0]: A symbols average correlation
+    # tup[1][0]: A symbols average corr
     # tup[1][1]: A symbols percentage of uncorrelated data
     # tup[1][2]: A symbols cointegration p-value
-    srt_coint = sorted(corrs, key=lambda tup: tup[indx_corr_vals][indx_coint_p_val], reverse=False)
+    srt_coint = sorted(corrs, key=lambda tup: tup[indx_corr_vals][indx_coint], reverse=False)
     srt_corrs = sorted(corrs, key=lambda tup: tup[indx_corr_vals][indx_avg_corr], reverse=True)
     srt_xcorrs = sorted(corrs, key=lambda tup: tup[indx_corr_vals][indx_avg_corr], reverse=False)
 
@@ -1929,8 +1845,14 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
             if j > 10:
                 break
             if tsym == ssym[indx_sym][indx_trg_sym]:
-                top10coint.append((ssym[indx_sym][indx_src_sym], ssym[indx_corr_vals][indx_coint_p_val]))
+                top10coint.append((ssym[indx_sym][indx_src_sym], ssym[indx_corr_vals][indx_coint]))
                 j += 1
+        # Count the number of potential trading pairs
+        i = 0
+        for row in top10coint:
+            if row[1].startswith('0-T'):
+                i += 1
+        target_sym.pot_trading_pairs = i
         target_sym.top10coint = top10coint
 
         # Gather the top 10 correlated symbols for the target symbol
@@ -2016,7 +1938,7 @@ def charts_cleanup(st, period):
     sym_list = all_df_symbols['Symbol'].values
     files_deleted = 0
     syms = []
-    for root, dirs, files in os.walk("charts"):
+    for root, dirs, files in os.walk(chart_dir):
         for file in files:
             if file.endswith(".png") and f"_{period}_" in file:
                 fn_comps = file.split("_")
@@ -2035,6 +1957,7 @@ def charts_cleanup(st, period):
 
         files_in_charts = []
         for root, dirs, files in os.walk("charts"):
+            tot_files = len(files)
             for file in files:
                 files_in_charts.append(file)
 
@@ -2188,53 +2111,6 @@ def optimize_hparams(st, prog_bar):
         st.info(f"All [{opt_cnt}] optimization tasks completed.")
 
     print("All optimization tasks completed.")
-
-
-def review_pp_objects(st, period):
-    # Seems not to be used. 2021-09-07
-    # Likely to be removed in the future.
-    if period == PricePredict.PeriodDaily:
-        sym_dpps = st.session_state[ss_SymDpps_d]
-    elif period == PricePredict.PeriodWeekly:
-        sym_dpps = st.session_state[ss_SymDpps_w]
-    else:
-        logger.error(f"Error: Invalid period: {period}")
-        return
-
-    for sym in sym_dpps:
-        ppo = sym_dpps[sym]
-        # Get first file in './ppo/save' directory that starts with the symbol in sym.
-        files = os.listdir('./ppo/save')
-        ppo_save_file = None
-        for file in files:
-            if file.startswith(sym):
-                ppo_save_file = file
-                break
-        if ppo_save_file is not None:
-            # Unpickle the PricePredict object
-            ppo_save = None
-            with open(f'{ppo_save_dir}/{ppo_save_file}', 'rb') as f:
-                try:
-                    ppo_save = PricePredict.unserialize(f)
-                except Exception as e:
-                    logger.error(f"Error loading PricePredict object: {e}")
-            if ppo_save is not None:
-                # Compare cached_train_data and cached_predict_data properties
-                # between ppo and ppo_saved objects after converting them into JSON strings.
-                ppo_json = json.dumps(ppo.cached_train_data)
-                ppo_save_json = json.dumps(ppo_save.cached_train_data)
-                if ppo_json != ppo_save_json:
-                    logger.error(f"Error: {sym} {period} cached_train_data objects do not match.")
-                    logger.error(f"ppo: {ppo_json}")
-                    logger.error(f"ppo_save: {ppo_save_json}")
-                ppo_json = json.dumps(ppo.cached_pred_data)
-                ppo_save_json = json.dumps(ppo_save.cached_pred_data)
-                if ppo_json != ppo_save_json:
-                    logger.error(f"Error: {sym} {period} cached_pred_data objects do not match.")
-                    logger.error(f"ppo: {ppo_json}")
-                    logger.error(f"ppo_save: {ppo_save_json}")
-        else:
-            logger.error(f"Error: {sym} {period} PricePredict object not found.")
 
 
 if __name__ == "__main__":
