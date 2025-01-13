@@ -1208,6 +1208,10 @@ def analyze_symbols(st, prog_bar, df_symbols,
                 else:
                     logger.error(f"Error PricePredict Object has invalid period value: {pp_.period}")
 
+    # Save out the updated DataFrames and PricePredict objects
+    store_pp_objects(st, prog_bar)
+    logger.info("--- Analyzing Symbols: Completed ---")
+
     sym_correlations('Weekly', st, st.session_state[ss_SymDpps_w], prog_bar)
     sym_correlations('Daily', st, st.session_state[ss_SymDpps_d], prog_bar)
 
@@ -1720,6 +1724,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
     sym_corr = {}
     i = 0
     item_cnt = len(sym_dpps)
+    pt_corr = {}
     for tsym in sym_dpps:
         if tsym not in all_df_symbols.Symbol.values:
             # Skip symbols not in the DataFrame
@@ -1755,7 +1760,10 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
 
             if tsym != ssym:
                 source_sym = sym_dpps[ssym]
-
+                # Optimization (TODO):
+                # Check in pt_corr to see if we have already calculated the correlation
+                # Store the correlation in sym_corr into the pt_corr dictionary
+                # So we can use it later without recalculating it.
                 days_back = req_data_points
                 if source_sym.period == PricePredict.PeriodWeekly:
                     days_back = req_data_points * 7
@@ -1777,7 +1785,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
                     corr = target_sym.periodic_correlation(source_sym)
                     sym_corr[(tsym, ssym)] = corr
                 except Exception as e:
-                    logger.error(f"Error calculating corr for [{tsym}:{ssym}] period[{ssym.period}]: {e}")
+                    logger.error(f"Error calculating corr for [{tsym}:{ssym}] period[D]: {e}")
                     continue
     corrs = []
     i = 0

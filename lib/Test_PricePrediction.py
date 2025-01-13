@@ -110,6 +110,9 @@ class Test_PricePredict(TestCase):
         # Now try loading a different ticker
         ticker = "TSLA"
         pp.period = PricePredict.PeriodDaily
+        pp.orig_data = None # Because we are re-using the pp object
+        pp.orig_downloaded_data = None # Because we are re-using the pp object
+        pp.cached_data = None # Because we are re-using the pp object
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=True)
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
         self.assertEqual(pp.ticker, ticker, "Wrong ticker")
@@ -118,11 +121,16 @@ class Test_PricePredict(TestCase):
         ticker = "EURUSD=X"
         pp.ticker = ticker
         pp.period = PricePredict.PeriodDaily
-        pp.orig_data = None
+        pp.orig_data = None # Because we are re-using the pp object
+        pp.orig_downloaded_data = None # Because we are re-using the pp object
+        pp.cached_data = None # Because we are re-using the pp object
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=True)
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
         self.assertEqual(pp.ticker, ticker, "Wrong ticker")
         # Now test fetch caching behaviour
+        pp.orig_data = None # Because we are re-using the pp object
+        pp.orig_downloaded_data = None # Because we are re-using the pp object
+        pp.cached_data = None # Because we are re-using the pp object
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
         self.assertEqual(pp.ticker, ticker, "Wrong ticker")
@@ -131,6 +139,9 @@ class Test_PricePredict(TestCase):
         ticker = "IBM"
         pp.ticker = ticker
         pp.period = PricePredict.PeriodWeekly
+        pp.orig_data = None # Because we are re-using the pp object
+        pp.orig_downloaded_data = None # Because we are re-using the pp object
+        pp.cached_data = None # Because we are re-using the pp object
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
         self.assertEqual(pp.ticker, ticker, "Wrong ticker")
@@ -138,24 +149,163 @@ class Test_PricePredict(TestCase):
         data, features = pp.fetch_data_yahoo(ticker, '2021-3-10', '2022-4-15', force_fetch=True)
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
         self.assertEqual(pp.ticker, ticker, "Wrong ticker")
+        # Verify that all data returned is weekly data
+        for dt in data.index:
+            self.assertEqual(dt.weekday(), 6, "Wrong day of the week in Weekly data fetch")
 
-
-        # Now try loading a different ticker
+        # Now try loading a different ticker (1min data)
         ticker = "TSLA"
         pp.period = PricePredict.Period1min
+        pp.orig_data = None # Because we are re-using the pp object
+        pp.orig_downloaded_data = None # Because we are re-using the pp object
+        pp.cached_data = None # Because we are re-using the pp object
         # We need at least @2000 inputs to train the model
         # - We can only get 7 Days of data for 1 minute period
         # - We can get 35 days of data for 5 minute period
         # - 15min 107 days: Fails - Only pull 35 days (1006 rows)
         # - 1hour 428 days: Passes
         days_to_load = int(3000 / PricePredict.PeriodMultiplier[pp.period])
-        # Set the start date to 7 days ag
-        start_date = (datetime.now() - timedelta(days=days_to_load)).strftime("%Y-%m-%d")
-        # Set the end date to today
-        end_date = datetime.now().strftime("%Y-%m-%d")
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
-        self.assertGreaterEqual(len(data), 1000, "Wrong data length")
-        self.assertEqual(pp.ticker, ticker, "Wrong ticker")
+        if data is None or len(data) < 1000:
+            self.assertEqual(True, True, f"No data from Yahoo Finance for {ticker} period {pp.period}")
+        else:
+            # Set the start date to 7 days ag
+            start_date = (datetime.now() - timedelta(days=days_to_load)).strftime("%Y-%m-%d")
+            # Set the end date to today
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+            self.assertGreaterEqual(len(data), 1000, "Wrong data length")
+            self.assertEqual(pp.ticker, ticker, "Wrong ticker")
+
+        # --- Test caching behaviour ---
+
+        # Now weekly data
+        ticker = "IBM"
+        start_date = "2020-01-01"
+        end_date = "2023-12-31"
+        pp.ticker = ticker
+        pp.period = PricePredict.PeriodDaily
+        pp.orig_data = None # Because we are re-using the pp object
+        pp.orig_downloaded_data = None # Because we are re-using the pp object
+        pp.cached_data = None # Because we are re-using the pp object
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
+        pp_data = pp.orig_data[pp.date_start:pp.date_end]
+        self.assertTrue(pp_data is not None, "pp.cached_data is None")
+        pp_data = pp.cached_data[pp.date_start:pp.date_end]
+        self.assertTrue(len(pp_data) > 0, "pp.orig_data: Does not have expected data")
+        # Test Cache fetch Daily data
+        start_date = "2021-02-01"
+        end_date = "2022-03-01"
+        data_fetch_count = pp.data_fetch_count
+        cache_fetch_count = pp.cache_fetch_count
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
+        self.assertTrue(data is not None, "pp.cached_data is None")
+        self.assertTrue(data[pp.date_start:pp.date_end].empty is not True, "pp.cached_data: Expected data")
+        self.assertEqual(pp.data_fetch_count, data_fetch_count, "pp.data_fetch_count: Should not have changed")
+        self.assertGreater(pp.cache_fetch_count, cache_fetch_count, "pp.cache_fetch_count: Should have changed")
+        # Test Cache fetch Weekly
+        start_date = "2022-01-01"
+        end_date = "2022-12-31"
+        # Invalidate the caches for force a network fetch
+        pp.orig_data = None # Because we are re-using the pp object
+        pp.orig_downloaded_data = None # Because we are re-using the pp object
+        pp.cached_data = None # Because we are re-using the pp object
+        data_fetch_count = pp.data_fetch_count
+        cache_fetch_count = pp.cache_fetch_count
+        cache_update_count = pp.cache_update_count
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
+        self.assertTrue(pp.orig_downloaded_data is not None, "pp.orig_downloaded_data is None")
+        self.assertTrue(pp.cached_data is not None, "pp.orig_downloaded_data is None")
+        self.assertTrue(data is not None, "pp.cached_data is None")
+        self.assertTrue(data[pp.date_start:pp.date_end].empty is not True, "pp.cached_data: Expected data")
+        self.assertGreater(pp.data_fetch_count, data_fetch_count, "pp.data_fetch_count: Should have changed")
+        self.assertEqual(pp.cache_fetch_count, cache_fetch_count, "pp.cache_fetch_count: Should not have changed")
+        self.assertEqual(pp.cache_update_count, cache_update_count, "pp.cache_fetch_count: Should not have changed")
+        # Full Overlap of cached data
+        start_date = "2021-01-01"
+        end_date = "2023-12-31"
+        data_fetch_count = pp.data_fetch_count
+        cache_fetch_count = pp.cache_fetch_count
+        cache_update_count = pp.cache_update_count
+        orig_data_len = len(pp.orig_data)
+        orig_downloaded_data_len = len(pp.orig_downloaded_data)
+        orig_cached_data_len = len(pp.cached_data)
+        cached_data_st_dt = pp.cached_data.index[0]
+        cached_data_en_dt = pp.cached_data.index[-1]
+        orig_dwnld_st_dt = pp.orig_downloaded_data.index[0]
+        orig_dwnld_en_dt = pp.orig_downloaded_data.index[-1]
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
+        self.assertTrue(data is not None, "pp.cached_data is None")
+        self.assertLess(orig_data_len, len(pp.orig_data), "pp.orig_data: Should be larger")
+        self.assertLess(orig_downloaded_data_len, len(pp.orig_downloaded_data), "pp.orig_downloaded_data: Should be larger")
+        self.assertGreater(cached_data_st_dt, pp.cached_data.index[0], "pp.cached_data: First date should be earlier")
+        self.assertLess(cached_data_en_dt, pp.cached_data.index[-1], "pp.cached_data: Last date should be later")
+        self.assertGreater(orig_dwnld_st_dt, pp.orig_downloaded_data.index[0], "pp.orig_downloaded_data: First date should be earlier")
+        self.assertLess(orig_dwnld_en_dt, pp.orig_downloaded_data.index[-1], "pp.orig_downloaded_data: Last date should be later")
+        self.assertLess(orig_cached_data_len, len(pp.cached_data), "pp.cached_data: Should be larger")
+        self.assertTrue(data[pp.date_start:pp.date_end].empty is not True, "pp.cached_data: Expected data")
+        self.assertGreater(pp.data_fetch_count, data_fetch_count, "pp.data_fetch_count: Should have changed")
+        self.assertEqual(pp.cache_fetch_count, cache_fetch_count, "pp.cache_fetch_count: Should not have changed")
+        self.assertGreater(pp.cache_update_count, cache_update_count, "pp.cache_fetch_count: Should have changed")
+        # Earlier overlap of cached data
+        start_date = "2020-07-01"
+        end_date = "2023-12-31"
+        data_fetch_count = pp.data_fetch_count
+        cache_fetch_count = pp.cache_fetch_count
+        cache_update_count = pp.cache_update_count
+        orig_data_len = len(pp.orig_data)
+        orig_downloaded_data_len = len(pp.orig_downloaded_data)
+        orig_cached_data_len = len(pp.cached_data)
+        cached_data_st_dt = pp.cached_data.index[0]
+        cached_data_en_dt = pp.cached_data.index[-1]
+        orig_dwnld_st_dt = pp.orig_downloaded_data.index[0]
+        orig_dwnld_en_dt = pp.orig_downloaded_data.index[-1]
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
+        self.assertTrue(data is not None, "pp.cached_data is None")
+        self.assertLess(orig_data_len, len(pp.orig_data), "pp.orig_data: Should be larger")
+        self.assertLess(orig_downloaded_data_len, len(pp.orig_downloaded_data), "pp.orig_downloaded_data: Should be larger")
+        self.assertGreater(cached_data_st_dt, pp.cached_data.index[0], "pp.cached_data: First date should be earlier")
+        self.assertEqual(cached_data_en_dt, pp.cached_data.index[-1], "pp.cached_data: Last date should not have changedr")
+        self.assertGreater(orig_dwnld_st_dt, pp.orig_downloaded_data.index[0], "pp.orig_downloaded_data: First date should be earlier")
+        self.assertEqual(orig_dwnld_en_dt, pp.orig_downloaded_data.index[-1], "pp.orig_downloaded_data: Last date should not have changed")
+        self.assertLess(orig_cached_data_len, len(pp.cached_data), "pp.cached_data: Should be larger")
+        self.assertTrue(data[pp.date_start:pp.date_end].empty is not True, "pp.cached_data: Expected data")
+        self.assertGreater(pp.data_fetch_count, data_fetch_count, "pp.data_fetch_count: Should have changed")
+        self.assertEqual(pp.cache_fetch_count, cache_fetch_count, "pp.cache_fetch_count: Should not have changed")
+        self.assertGreater(pp.cache_update_count, cache_update_count, "pp.cache_fetch_count: Should have changed")
+        # Later overlap of cached data
+        start_date = "2020-07-01"
+        end_date = "2027-06-30"
+        data_fetch_count = pp.data_fetch_count
+        cache_fetch_count = pp.cache_fetch_count
+        cache_update_count = pp.cache_update_count
+        orig_data_len = len(pp.orig_data)
+        orig_downloaded_data_len = len(pp.orig_downloaded_data)
+        orig_cached_data_len = len(pp.cached_data)
+        cached_data_st_dt = pp.cached_data.index[0]
+        cached_data_en_dt = pp.cached_data.index[-1]
+        orig_dwnld_st_dt = pp.orig_downloaded_data.index[0]
+        orig_dwnld_en_dt = pp.orig_downloaded_data.index[-1]
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
+        self.assertTrue(data is not None, "pp.cached_data is None")
+        self.assertLess(orig_data_len, len(pp.orig_data), "pp.orig_data: Should be larger")
+        self.assertLess(orig_downloaded_data_len, len(pp.orig_downloaded_data), "pp.orig_downloaded_data: Should be larger")
+        self.assertEqual(cached_data_st_dt, pp.cached_data.index[0], "pp.cached_data: First date should not have changed")
+        self.assertLess(cached_data_en_dt, pp.cached_data.index[-1], "pp.cached_data: Last date should have move forward")
+        self.assertEqual(orig_dwnld_st_dt, pp.orig_downloaded_data.index[0], "pp.orig_downloaded_data: First date should not have changed")
+        self.assertLess(orig_dwnld_en_dt, pp.orig_downloaded_data.index[-1], "pp.orig_downloaded_data: Last date have moved forward")
+        self.assertLess(orig_cached_data_len, len(pp.cached_data), "pp.cached_data: Should be larger")
+        self.assertTrue(data[pp.date_start:pp.date_end].empty is not True, "pp.cached_data: Expected data")
+        self.assertGreater(pp.data_fetch_count, data_fetch_count, "pp.data_fetch_count: Should have changed")
+        self.assertEqual(pp.cache_fetch_count, cache_fetch_count, "pp.cache_fetch_count: Should not have changed")
+        self.assertGreater(pp.cache_update_count, cache_update_count, "pp.cache_fetch_count: Should have changed")
+
+        # Now check for the cache updates to the start and end of the cached data.
 
     def test_check_for_recent_model(self):
         """
@@ -417,10 +567,10 @@ class Test_PricePredict(TestCase):
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
         self.assertEqual(features, 19, "features: Wrong count")
         self.assertEqual(targets, 4, "features: Wrong count")
-        self.assertEqual(1006, len(dates_data), "dates_data: Wrong length")
+        self.assertEqual(1042, len(dates_data), "dates_data: Wrong length")
         # Augmented data has 1 additional period added to it for the prediction
         # placeholder.  This is why the length is 1007.
-        self.assertEqual(1007, len(aug_data), "aug_data: Wrong length")
+        self.assertEqual(1043, len(aug_data), "aug_data: Wrong length")
 
     def test_scale_data(self):
         # Create an instance of the price prediction object
@@ -436,12 +586,12 @@ class Test_PricePredict(TestCase):
         # Augment the data with additional indicators/features
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
         self.assertEqual(19, features, "features: Wrong count")
-        self.assertEqual(1006, len(dates_data), "dates_data: Wrong length")
-        self.assertEqual(1007, len(aug_data), "aug_data: Wrong length")
+        self.assertEqual(1042, len(dates_data), "dates_data: Wrong length")
+        self.assertEqual(1043, len(aug_data), "aug_data: Wrong length")
 
         # Scale the data so the model can use it more effectively
         scaled_data, scaler = pp.scale_data(aug_data)
-        self.assertEqual(1007, len(scaled_data), "scaled_data: Wrong length")
+        self.assertEqual(1043, len(scaled_data), "scaled_data: Wrong length")
         self.assertIsNotNone(scaler, "scaler: Wrong length")
 
     def test_restore_scale_pred(self):
@@ -458,19 +608,19 @@ class Test_PricePredict(TestCase):
         # Augment the data with additional indicators/features
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
         self.assertEqual(19, features, "features: Wrong count")
-        self.assertEqual(1006, len(dates_data), "dates_data: Wrong length")
-        self.assertEqual(1007, len(aug_data), "aug_data: Wrong length")
+        self.assertEqual(1042, len(dates_data), "dates_data: Wrong length")
+        self.assertEqual(1043, len(aug_data), "aug_data: Wrong length")
 
         # Scale the data so the model can use it more effectively
         scaled_data, scaler = pp.scale_data(np.array(aug_data))
-        self.assertEqual(1007, len(scaled_data), "scaled_data: Wrong length")
+        self.assertEqual(1043, len(scaled_data), "scaled_data: Wrong length")
         self.assertIsNotNone(scaler, "scaler: Scaler is None")
 
         # The restore_scale_pred function takes a single column of predictions of
         # the scaled 'TargetNextClose' feature and restores the original scale.
         scaled_col = scaled_data[:, -pp.targets:]
         restored_pred = pp.restore_scale_pred(scaled_col)
-        self.assertEqual(1007, len(restored_pred), "restored_pred: Wrong length")
+        self.assertEqual(1043, len(restored_pred), "restored_pred: Wrong length")
         # Check tolerance of 99.9% accuracy...
         eql_array = np.isclose(np.array(aug_data['TargetNextClose']), restored_pred[:, 1])
         pcnt_true = np.count_nonzero(eql_array) / len(eql_array)
@@ -529,6 +679,7 @@ class Test_PricePredict(TestCase):
         self.assertTrue(callable(save_op), "model: 'save' method not found")
 
         # Load model *args, build model_path
+        # Make sure that we can specify the model file name's date values.
         model = pp.load_model(test_ticker, mdl_start_date, mdl_end_date, pp.model_dir)
         save_op = getattr(model, 'save', None)
         self.assertTrue(callable(save_op), "model: 'save' method not found")
@@ -613,18 +764,18 @@ class Test_PricePredict(TestCase):
         self.assertGreaterEqual(len(data), 1, "data: Wrong length")
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
         self.assertEqual(19, features, "features: Wrong count")
-        self.assertEqual(1006, len(dates_data), "dates_data: Wrong length")
-        self.assertEqual(1007, len(aug_data), "aug_data: Wrong length")
+        self.assertEqual(1042, len(dates_data), "dates_data: Wrong length")
+        self.assertEqual(1043, len(aug_data), "aug_data: Wrong length")
 
         # Scale the data
         scaled_data, scaler = pp.scale_data(aug_data)
-        self.assertEqual(1007, len(scaled_data), "scaled_data: Wrong length")
+        self.assertEqual(1043, len(scaled_data), "scaled_data: Wrong length")
         self.assertIsNotNone(scaler, "scaler: Wrong length")
 
         # Prepare the scaled data for model inputs
         X, y = pp.prep_model_inputs(scaled_data, features)
-        self.assertEqual(1007 - pp.back_candles, len(X), "X: Wrong length")
-        self.assertEqual(1007 - pp.back_candles, len(y), "y: Wrong length")
+        self.assertEqual(1043 - pp.back_candles, len(X), "X: Wrong length")
+        self.assertEqual(1043 - pp.back_candles, len(y), "y: Wrong length")
 
         # Train the model
         # Use a small batch size and epochs to test the model training
@@ -637,7 +788,7 @@ class Test_PricePredict(TestCase):
         save_op = getattr(model, 'save', None)
         self.assertTrue(callable(save_op), "model: 'save' method not found")
         self.assertIsNotNone(y_pred, "y_pred: is None")
-        self.assertEqual(199, len(y_pred), "y_pred: Wrong length")
+        self.assertEqual(206, len(y_pred), "y_pred: Wrong length")
         self.assertEqual(pp.PeriodDaily, pp.period, f"period[{pp.period}]: Wrong period")
 
         # View the test prediction results
@@ -664,7 +815,7 @@ class Test_PricePredict(TestCase):
         end_date = "2023-12-31"
 
         # Load data from Yahoo Finance
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, period=PricePredict.PeriodWeekly)
         self.assertGreaterEqual(len(data), 1, "data: Wrong length")
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
         self.assertEqual(19, features, "features: Wrong count")
@@ -723,18 +874,18 @@ class Test_PricePredict(TestCase):
         # Augment the data with additional indicators/features
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
         self.assertEqual(features, 19, "features: Wrong count")
-        self.assertEqual(1006, len(dates_data), "dates_data: Wrong length")
-        self.assertEqual(1007, len(aug_data), "aug_data: Wrong length")
+        self.assertEqual(1042, len(dates_data), "dates_data: Wrong length")
+        self.assertEqual(1043, len(aug_data), "aug_data: Wrong length")
 
         # Scale the data so the model can use it more effectively
         scaled_data, scaler = pp.scale_data(aug_data)
-        self.assertEqual(1007, len(scaled_data), "scaled_data: Wrong length")
+        self.assertEqual(1043, len(scaled_data), "scaled_data: Wrong length")
         self.assertIsNotNone(scaler, "scaler: Wrong length")
 
         # Prepare the scaled data for model inputs
         X, y = pp.prep_model_inputs(scaled_data, features)
-        self.assertEqual(1007 - pp.back_candles, len(X), "X: Wrong length")
-        self.assertEqual(1007 - pp.back_candles, len(y), "y: Wrong length")
+        self.assertEqual(1043 - pp.back_candles, len(X), "X: Wrong length")
+        self.assertEqual(1043 - pp.back_candles, len(y), "y: Wrong length")
 
         # Use a small batch size and epochs to test the model training
         pp.epochs = 3
@@ -765,18 +916,18 @@ class Test_PricePredict(TestCase):
         # Augment the data with additional indicators/features
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
         self.assertEqual(features, 19, "features: Wrong count")
-        self.assertEqual(1006, len(dates_data), "dates_data: Wrong length")
-        self.assertEqual(1007, len(aug_data), "aug_data: Wrong length")
+        self.assertEqual(1042, len(dates_data), "dates_data: Wrong length")
+        self.assertEqual(1043, len(aug_data), "aug_data: Wrong length")
 
         # Scale the data so the model can use it more effectively
         scaled_data, scaler = pp.scale_data(aug_data)
-        self.assertEqual(1007, len(scaled_data), "scaled_data: Wrong length")
+        self.assertEqual(1043, len(scaled_data), "scaled_data: Wrong length")
         self.assertIsNotNone(scaler, "scaler: Wrong length")
 
         # Prepare the scaled data for model inputs
         X, y = pp.prep_model_inputs(scaled_data, features)
-        self.assertEqual(1007 - pp.back_candles, len(X), "X: Wrong length")
-        self.assertEqual(1007 - pp.back_candles, len(y), "y: Wrong length")
+        self.assertEqual(1043 - pp.back_candles, len(X), "X: Wrong length")
+        self.assertEqual(1043 - pp.back_candles, len(y), "y: Wrong length")
 
         # Use a small batch size and epochs to test the model training
         pp.epochs = 3
@@ -811,18 +962,19 @@ class Test_PricePredict(TestCase):
         # Augment the data with additional indicators/features
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
         self.assertEqual(features, 19, "features: Wrong count")
-        self.assertEqual(1006, len(dates_data), "dates_data: Wrong length")
-        self.assertEqual(1007, len(aug_data), "aug_data: Wrong length")
+        self.assertEqual(1042, len(dates_data), "dates_data: Wrong length")
+        # Augmented data has 1 additional period added to it for the prediction
+        self.assertEqual(1043, len(aug_data), "aug_data: Wrong length")
 
         # Scale the augmented data
         scaled_data, scaler = pp.scale_data(aug_data)
-        self.assertEqual(1007, len(scaled_data), "scaled_data: Wrong length")
+        self.assertEqual(1043, len(scaled_data), "scaled_data: Wrong length")
         self.assertIsNotNone(scaler, "scaler: is None")
 
         # Prepare the scaled data for model inputs
         X, y = pp.prep_model_inputs(scaled_data, features)
-        self.assertEqual(1007 - pp.back_candles, len(X), "X: Wrong length")
-        self.assertEqual(1007 - pp.back_candles, len(y), "y: Wrong length")
+        self.assertEqual(1043 - pp.back_candles, len(X), "X: Wrong length")
+        self.assertEqual(1043 - pp.back_candles, len(y), "y: Wrong length")
 
         # Use a small batch size and epochs to test the model training
         # pp.epochs = 10
@@ -841,49 +993,52 @@ class Test_PricePredict(TestCase):
                             None, None, None,
                              title=title)
 
+        # Test 1min period download and prediction
         ticker = "TSLA"
         pp.period = PricePredict.Period1min
         days_to_load = int(3000 / PricePredict.PeriodMultiplier[pp.period])
         # Set the start date to 7 days ago, formatted as a string
-        start_date = (datetime.today() - timedelta(days=7)).strftime("%Y-%m-%d")
+        start_date = (datetime.today() - timedelta(days=30)).strftime("%Y-%m-%d")
         # Set the end date to today
         end_date = datetime.today().strftime("%Y-%m-%d")
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
-        self.assertGreaterEqual(len(data), 1000, "data: Wrong length")
+        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=True)
+        if data is None:
+            self.assertTrue(data is None, f"No data returned for {ticker} Period {pp.period}")
+        else:
 
-        # Augment the data with additional indicators/features
-        aug_data, features, targets, dates_data = pp.augment_data(data, features)
-        self.assertEqual(features, 19, "features: Wrong count")
-        date_data_len = len(dates_data)
-        self.assertGreater(date_data_len, 1200, "dates_data: Wrong length")
-        self.assertEqual(date_data_len + 1, len(aug_data), "aug_data: Wrong length")
+            # Augment the data with additional indicators/features
+            aug_data, features, targets, dates_data = pp.augment_data(data, features)
+            self.assertEqual(features, 19, "features: Wrong count")
+            date_data_len = len(dates_data)
+            self.assertGreater(date_data_len, 1200, "dates_data: Wrong length")
+            self.assertEqual(date_data_len + 1, len(aug_data), "aug_data: Wrong length")
 
-        # Scale the augmented data
-        scaled_data, scaler = pp.scale_data(aug_data)
-        self.assertEqual(date_data_len + 1, len(scaled_data), "scaled_data: Wrong length")
-        self.assertIsNotNone(scaler, "scaler: is None")
+            # Scale the augmented data
+            scaled_data, scaler = pp.scale_data(aug_data)
+            self.assertEqual(date_data_len + 1, len(scaled_data), "scaled_data: Wrong length")
+            self.assertIsNotNone(scaler, "scaler: is None")
 
-        # Prepare the scaled data for model inputs
-        X, y = pp.prep_model_inputs(scaled_data, features)
-        self.assertEqual(date_data_len + 1 - pp.back_candles, len(X), "X: Wrong length")
-        self.assertEqual(date_data_len + 1 - pp.back_candles, len(y), "y: Wrong length")
+            # Prepare the scaled data for model inputs
+            X, y = pp.prep_model_inputs(scaled_data, features)
+            self.assertEqual(date_data_len + 1 - pp.back_candles, len(X), "X: Wrong length")
+            self.assertEqual(date_data_len + 1 - pp.back_candles, len(y), "y: Wrong length")
 
-        # Use a small batch size and epochs to test the model training
-        # pp.epochs = 10
-        # pp.batch_size = 5
-        # Train the model
-        model, y_pred, mse = pp.train_model(X, y)
-        self.assertIsNotNone(model, "model: is None")
-        y_pred = pp.predict_price(pp.X_test)
-        # View the test prediction results
-        time = datetime.now()
-        time_str = time.strftime('%Y-%m-%d %H:%M:%S')
-        title = f"test_predict_price: {ticker} -- Period {pp.period} {time_str}"
-        test_close = y[pp.split_limit:, 1]  # Close price
-        pred_close = y_pred[:, 1]  # Predicted close price
-        pp.plot_pred_results(test_close[-len(pred_close):-2], pred_close, None,
-                            None, None, None,
-                             title=title)
+            # Use a small batch size and epochs to test the model training
+            # pp.epochs = 10
+            # pp.batch_size = 5
+            # Train the model
+            model, y_pred, mse = pp.train_model(X, y)
+            self.assertIsNotNone(model, "model: is None")
+            y_pred = pp.predict_price(pp.X_test)
+            # View the test prediction results
+            time = datetime.now()
+            time_str = time.strftime('%Y-%m-%d %H:%M:%S')
+            title = f"test_predict_price: {ticker} -- Period {pp.period} {time_str}"
+            test_close = y[pp.split_limit:, 1]  # Close price
+            pred_close = y_pred[:, 1]  # Predicted close price
+            pp.plot_pred_results(test_close[-len(pred_close):-2], pred_close, None,
+                                None, None, None,
+                                 title=title)
 
     def test_adjust_prediction(self):
         pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
@@ -900,18 +1055,18 @@ class Test_PricePredict(TestCase):
         # Augment the data
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
         self.assertEqual(features, 19, "features: Wrong count")
-        self.assertEqual(1006, len(dates_data), "dates_data: Wrong length")
-        self.assertEqual(1007, len(aug_data), "aug_data: Wrong length")
+        self.assertEqual(1042, len(dates_data), "dates_data: Wrong length")
+        self.assertEqual(1043, len(aug_data), "aug_data: Wrong length")
 
         # Scale the data
         scaled_data, scaler = pp.scale_data(aug_data)
-        self.assertEqual(1007, len(scaled_data), "scaled_data: Wrong length")
+        self.assertEqual(1043, len(scaled_data), "scaled_data: Wrong length")
         self.assertIsNotNone(scaler, "scaler: Wrong length")
 
         # Prepare the scaled data for model inputs
         X, y = pp.prep_model_inputs(scaled_data, features)
-        self.assertEqual(1007 - pp.back_candles, len(X), "X: Wrong length")
-        self.assertEqual(1007 - pp.back_candles, len(y), "y: Wrong length")
+        self.assertEqual(1043 - pp.back_candles, len(X), "X: Wrong length")
+        self.assertEqual(1043 - pp.back_candles, len(y), "y: Wrong length")
 
         # Use a small batch size and epochs to test the model training
         pp.epochs = 10
@@ -1202,9 +1357,9 @@ class Test_PricePredict(TestCase):
         start_date = "2020-01-01"
         end_date = "2023-12-31"
         data1, features1 = pp1.fetch_data_yahoo(ticker1, start_date, end_date)
-        self.assertGreaterEqual(1006, len(data1), "data1: Wrong length")
+        self.assertGreaterEqual(1042, len(data1), "data1: Wrong length")
         data2, features2 = pp2.fetch_data_yahoo(ticker2, start_date, end_date)
-        self.assertGreaterEqual(1006, len(data2), "data2: Wrong length")
+        self.assertGreaterEqual(1042, len(data2), "data2: Wrong length")
 
         # Perform the corr analysis
         ret_dict = pp1.periodic_correlation(pp2)

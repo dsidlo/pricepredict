@@ -208,6 +208,7 @@ class PricePredict():
         self.date_end = ''  # The end date for the data
         self.orig_data = None  # Save the originally downloaded data for later use.
         self.orig_downloaded_data = None  # Save the originally downloaded data for later use.
+        self.cached_data = None  # Interpolated cached data
         self.missing_rows_analysis = None  # Save the missing rows analysis for later review.
         self.unagg_data = None  # Save the unaggregated data for later use.
         self.date_data = None  # Save the date data for later use.
@@ -278,6 +279,9 @@ class PricePredict():
         self.yf_sleep = yf_sleep  # The sleep time for yfinance requests
         self.yf_cached = False  # Using the yfinance_cache
         self.yf = None  # The yfinance/yfinance_cache object used
+        self.data_fetch_count = 0  # The data fetch count
+        self.cache_fetch_count = 0  # The cache fetch count
+        self.cache_update_count = 0  # The cache update count
         self.spread_analysis = {}  # Spread analysis against other tickers
         self.logger = None  # The logger for this object
 
@@ -446,11 +450,16 @@ class PricePredict():
         Note: self.date_start and self.date_end are set based on parameters of the last
               call to this function. They are not set by the data in the self.orig_data.
 
+        - Required Parameters:
         :param ticker:
         :param date_start:
         :param date_end:
+
         - Optional
         :param period:      # The period for the data (D, W)
+        :force_fetch:       # Force the fetch of the data from Yahoo Finance
+
+        - Returns:
         :return:
             data,           # An array of data Open, High, Low, Close, Adj Close, Volume
             feature_cnt:    # The number of features in the data
@@ -474,43 +483,78 @@ class PricePredict():
         if self.Verbose:
             self.logger.info(f"Loading Data for: {ticker}  from: {date_start} to {date_end}, Period: {self.period}")
 
-        # if self.orig_data is not None:
-        # Check the start and end dates to see if the requested data is in self.orig_data.
-        # if the requested data is in self.orig_data, then return the data from self.orig_data.
-        if self.orig_data is not None and force_fetch is False:
+        if force_fetch:
+            self.logger.info(f"Force Fetch: Loading Data for: {ticker}  from: {date_start} to {date_end}, Period: {self.period}")
+            self.logger.info("Force Fetch: Clearing the caches.")
+            self.orig_data = None
+            self.orig_downloaded_data = None
+            self.cached_data = None
+            self.unagg_data = None
+            self.missing_rows_analysis = None
 
-            if date_start >= self.date_start and date_end <= self.date_end:
+        if period is not None:
+            self.period = period
+
+        # ------ Load data from Cache if available ------
+
+        # See if the requested data is in the cache...
+        # - Does self.cached_data data data?
+        # - Check the start and end dates to see if the requested data is in self.orig_data.
+        # - If the requested data is in self.cached_data, then return the data from self.cached_data.
+        # - Place data requested data from the cache into self.orig_data (which always contains the latest
+        #   requested data).
+        dt_start = datetime.strptime(date_start, '%Y-%m-%d')
+        dt_end = datetime.strptime(date_end, '%Y-%m-%d')
+        # TODO: Adjust dt_start and dt_end for Weekly data.
+        if self.cached_data is not None and force_fetch is False:
+            if self.cached_data.index[0] <= dt_start and self.cached_data.index[-1] >= dt_end:
                 if self.period == self.PeriodDaily:
+                    # Return Data from the cache.
                     # Get the data from the self.orig_data using the date range.
-                    data = self.orig_data.loc[date_start:date_end]
-                    return data, data.shape[1]
-                else:
+                    self.date_start = date_start
+                    self.date_end = date_end
+                    self.orig_data = self.cached_data.loc[date_start:date_end]
+                    self.date_data = pd.Series(self.orig_data.index)
+                    self.cache_fetch_count += 1
+                    return self.orig_data, self.orig_data.shape[1]
+                elif self.period == self.PeriodWeekly:
+                    # Return Weekly Data from the cache.
                     # Get the data from the self.orig_data using the date range.
                     # The date aggregation returns data indexed by the Sunday date.
                     # Calculate the Sunday for the date_start.
                     date_obj = datetime.strptime(date_start, '%Y-%m-%d')
-                    monday = date_obj - timedelta(days=date_obj.weekday())
-                    w_date_start = monday.strftime('%Y-%m-%d')
+                    date_start_sunday = date_obj - timedelta(days=date_obj.weekday())
+                    w_date_start = date_start_sunday.strftime('%Y-%m-%d')
                     # Calculate the Sunday date_end.
                     date_obj = datetime.strptime(date_end, '%Y-%m-%d')
-                    monday = date_obj + timedelta(days=6) - timedelta(days=date_obj.weekday())
-                    w_date_end= monday.strftime('%Y-%m-%d')
+                    date_end_sunday = date_obj + timedelta(days=6) - timedelta(days=date_obj.weekday())
+                    w_date_end= date_end_sunday.strftime('%Y-%m-%d')
 
-                    data = self.orig_data.loc[w_date_start:w_date_end]
-                    return data, data.shape[1]
+                    wkly_data = self.cached_data.loc[w_date_start:w_date_end]
+
+                    # Data usually needed by this object or the user.
+                    self.date_start = date_start
+                    self.date_end = date_end
+                    self.unagg_data = self.unagg_data.loc[date_start:date_end]
+                    self.orig_data = wkly_data
+                    self.cache_fetch_count += 1
+                    return wkly_data, wkly_data.shape[1]
+
+        # ------ Fetch the data from Yahoo Finance ------
 
         # Remove "Test-" from the start of the ticker (used for model testing)
         f_ticker = re.sub(r'^Test-', '', ticker)
         retry_cnt = 0
         retry_needed = False
         retry_success = False
-        data = []
+        net_data = []
+        self.data_fetch_count += 1
         while True:
             try:
                 if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
-                    data = xyf.download(tickers=f_ticker, start=date_start, end=date_end)
+                    net_data = xyf.download(tickers=f_ticker, start=date_start, end=date_end)
                 else:
-                    data = xyf.download(tickers=f_ticker, start=date_start, end=date_end, interval=self.period)
+                    net_data = xyf.download(tickers=f_ticker, start=date_start, end=date_end, interval=self.period)
                 break
             except Exception as e:
                 if 'Expecting value' in str(e):
@@ -528,7 +572,7 @@ class PricePredict():
                     ticker_data = None
                     break
 
-        if len(data) == 0:
+        if len(net_data) == 0:
             self.logger.error(f"Error: No data for {ticker} from {date_start} to {date_end}")
             return None, None
 
@@ -537,36 +581,24 @@ class PricePredict():
         #     data.reset_index()
 
         # If the column is a tuple, then we only want the first part of the tuple.
-        if len(data) > 0:
-            cols = data.columns
+        if len(net_data) > 0:
+            cols = net_data.columns
             if type(cols[0]) == tuple:
                 cols = [col[0] for col in cols]
-                data.columns = cols
+                net_data.columns = cols
 
-        if self.yf_cached and 'Adj Close' not in data.columns:
-            data['Adj Close'] = data['Close']
-            data = data[['Adj Close', 'Close', 'High', 'Low', 'Open', 'Volume']]
+        if self.yf_cached and 'Adj Close' not in net_data.columns:
+            net_data['Adj Close'] = net_data['Close']
+            net_data = net_data[['Adj Close', 'Close', 'High', 'Low', 'Open', 'Volume']]
 
-        # if data.index.name is None and isinstance(data.index, pd.DatetimeIndex):
-        #     # This happens when using yfinance_cache.
-        #     # Give the unnamed DateTimeIndex the name 'Date'.
-        #     data.index.name = 'Date'
+        # ----- Date Cleanup after data fetch -----
 
-        # if 'Date' != data.index.name:
-        #     if 'Datetime' == data.index.name:
-        #         # Rename the data's index.name to 'Date'
-        #         data.index.name = 'Date'
-        #     else:
-        #         self.logger.error(
-        #             f"Error: No Date or Datetime in data.index.name for {ticker} from {date_start} to {date_end}")
-        #         return None, None
-
-        best_start_date = data.index[0].strftime('%Y-%m-%d')
-        best_end_date = data.index[-1].strftime('%Y-%m-%d')
+        data_start_date = net_data.index[0]
+        data_end_date = net_data.index[-1]
         # Create a data frome that contains all business days.
-        all_days = pd.date_range(start=best_start_date, end=best_end_date, freq='B')
+        all_days = pd.date_range(start=data_start_date, end=data_end_date, freq='B')
         # Add rows into self_data that are not in ppo_data, such that fields other than 'Date' are NaN
-        data_nan_filled = data.copy(deep=True)
+        data_nan_filled = net_data.copy(deep=True)
         data_nan_filled.index = pd.to_datetime(data_nan_filled.index)
         data_nan_filled = data_nan_filled.reindex(all_days)
         # Interpolate the missing data in the dataframe, given the existing data.
@@ -579,28 +611,123 @@ class PricePredict():
         # Group by month to get the distribution
         missing_distribution = missing_rows_mask.groupby(pd.Grouper(freq='ME')).sum()
 
+        # Normalize the datetime index.
+        if self.period not in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
+            net_data.index = net_data.index.tz_localize(None)
+            interpolated_data.index = interpolated_data.index.tz_localize(None)
+
         # Aggregate the data to a weekly period, if nd
         unagg_data = None
-        orig_data = data.copy(deep=True)
+        orig_data = net_data.copy(deep=True)
         if self.period == self.PeriodWeekly:
-            wkl_data = self.aggregate_data(interpolated_data, period=self.PeriodWeekly)
+            interpolated_data = self.aggregate_data(interpolated_data, period=self.PeriodWeekly)
             # Make new copies of the data so that these separate dataframes don't share the same memory.
-            unagg_data = interpolated_data.copy(deep=True)
-            orig_data = wkl_data.copy(deep=True)
-            data = wkl_data.copy(deep=True)
+
+        # ------ At this point the final data to return is in "interpolated_data" ------
 
         if self.Verbose:
             self.logger.info(f"data.len(): {len(orig_data)}  data.shape: {orig_data.shape}")
 
+        # Data from clode in this function above...
+        # - data: latest data just downloaded from Yahoo Finance.
+        # - orig_data: "data" filled in and interpolated.
+
+        # Caches:
+        # - self.original_data: The original data from Yahoo Finance.
+        # - self.cached_data: The interpolated data.
+        # - self.orig_data: The latest interpolated data from yahoo or from the cache
+        # - self.unagg_data: The unaggregated data from the cache (if period is weekly)
+
+        # ----- Cache update logic -----
+
+        # Check if the data lies byond the original cache.
+        if self.cached_data is not None and force_fetch is False:
+            cache_start_date = self.cached_data.index[0]
+            cache_end_date = self.cached_data.index[-1]
+            orig_start_date = self.orig_downloaded_data.index[0]
+            orig_end_date = self.orig_downloaded_data.index[-1]
+            intrp_data_start_date = interpolated_data.index[0]
+            intrp_data_end_date = interpolated_data.index[-1]
+            # Update the orig_downloaded_data and the cached_data.
+            cache_updated = False
+            data_start_date = data_start_date
+            data_end_date = data_end_date
+            if orig_start_date > data_start_date or orig_end_date < data_end_date:
+                if cache_start_date > data_start_date and orig_start_date < data_end_date:
+                    # If the latest data fully overlaps the cache, on both sides,
+                    # then replace orig_downloaded_data with the latest data
+                    # and replace cached_data with the latest interpolated_data.
+                    self.orig_downloaded_data = orig_data
+                    self.cached_data = interpolated_data
+                    cache_updated = True
+                else:
+                    if orig_start_date > data_start_date:
+                        # Append that backend unaltered data to orig_downloaded_data
+                        # Append the backend interpolated_data to cached_data
+                        # - Get the backend of the unaltered data that does not exist in
+                        #   orig_downloaded_data.
+                        be_net_data = net_data[net_data.index < orig_start_date].copy(deep=True)
+                        # - Append the backend of the unaltered data to orig_downloaded_data.
+                        if len(be_net_data) > 0:
+                            self.orig_downloaded_data = pd.concat([be_net_data, self.orig_downloaded_data])
+                            cache_updated = True
+                    if orig_start_date < data_end_date:
+                        # Append that frontend unaltered data to orig_downloaded_data
+                        # Append the frontend interpolated_data to cached_data
+                        # - Get the frontend of the unaltered data that does not exist in
+                        #   orig_downloaded_data.
+                        fe_net_data = net_data.loc[net_data.index > orig_start_date].copy(deep=True)
+                        # - Append the frontend of the unaltered data to orig_downloaded_data.
+                        if len(fe_net_data) > 0:
+                            self.orig_downloaded_data = pd.concat([self.orig_downloaded_data, fe_net_data])
+                            cache_updated = True
+            # Update the cached_data if the data is within the cache.
+            if cache_start_date > intrp_data_start_date or cache_end_date < intrp_data_end_date:
+                if cache_start_date > intrp_data_start_date and cache_end_date < intrp_data_start_date:
+                    # If the latest data fully overlaps the cache, on both sides,
+                    # then replace orig_downloaded_data with the latest data
+                    # and replace cached_data with the latest interpolated_data.
+                    self.orig_downloaded_data = orig_data
+                    self.cached_data = interpolated_data
+                    cache_updated = True
+                else:
+                    if cache_start_date > intrp_data_start_date:
+                        # Append that backend unaltered data to orig_downloaded_data
+                        # Append the backend interpolated_data to cached_data
+                        # - Get the backend of the unaltered data that does not exist in
+                        #   orig_downloaded_data.
+                        be_int_data = interpolated_data[interpolated_data.index > cache_start_date].copy(deep=True)
+                        # - Append the backend of the unaltered data to orig_downloaded_data.
+                        if len(be_int_data) > 0:
+                            self.cached_data = pd.concat([be_int_data, self.cached_data])
+                            cache_updated = True
+                    if cache_end_date < intrp_data_start_date:
+                        # Append that frontend unaltered data to orig_downloaded_data
+                        # Append the frontend interpolated_data to cached_data
+                        # - Get the frontend of the unaltered data that does not exist in
+                        #   orig_downloaded_data.
+                        fe_int_data = interpolated_data.loc[interpolated_data.index < cache_end_date].copy(deep=True)
+                        # - Append the frontend of the unaltered data to orig_downloaded_data.
+                        if len(fe_int_data) > 0:
+                            self.cached_data = pd.concat([self.cached_data, fe_int_data])
+                            cache_updated = True
+            if cache_updated:
+                self.cache_update_count += 1
+
+        # Hold on the missing rows analysis for later review.
+        self.missing_rows_analysis = {'missing_rows': missing_rows, 'missing_distribution': missing_distribution}
+
+        # Data normally of use to the user and to this object.
         self.ticker = ticker
         self.date_start = date_start
         self.date_end = date_end
-        self.missing_rows_analysis = {'missing_rows': missing_rows, 'missing_distribution': missing_distribution}
-        self.orig_downloaded_data = orig_data
+        self.orig_downloaded_data = net_data
         self.orig_data = interpolated_data
+        self.cached_data = interpolated_data
+        self.date_data = pd.Series(interpolated_data.index)
         self.unagg_data = unagg_data
 
-        return data, data.shape[1]
+        return interpolated_data, interpolated_data.shape[1]
 
     def aggregate_data(self, data, period):
         """
@@ -881,12 +1008,17 @@ class PricePredict():
         if modelDir is None:
             modelDir = self.model_dir
 
+        if dateStart is None:
+            dateStart = self.date_start
+        if dateEnd is None:
+            dateEnd = self.date_end
+
         # Verify that the modelDir exists.
         if not os.path.exists(modelDir):
             self.logger.error(f"Error: Model directory [{modelDir}] does not exist.")
             raise ValueError(f"Error: Model directory [{modelDir}] does not exist.")
 
-        model_file = ticker + f"_{self.period}_" + self.date_start + "_" + self.date_end + ".keras"
+        model_file = ticker + f"_{self.period}_" + dateStart + "_" + dateEnd + ".keras"
         # Python does not like the = sign in filenames.
         model_file = model_file.replace('=', '~')
         model_path = modelDir + model_file
@@ -2456,7 +2588,7 @@ class PricePredict():
         plt.show()
         return plt
 
-    def periodic_correlation(self, ppo, pc_period_len: int = None, interolate: bool = True):
+    def periodic_correlation(self, ppo, pc_period_len: int = None, interpolate: bool = True):
         """
         Calculate the corr of the predicted prices with the actual prices.
         - Pearson Correlation (Raw and Normalized Correlation)
@@ -2501,7 +2633,7 @@ class PricePredict():
             e_txt = f"ppo[{ppo.ticker}] has less than {min_data_points} data points."
             raise ValueError(e_txt)
 
-        if interolate:
+        if interpolate:
             # Get the original data from both objects
             self_data = self.orig_data
             ppo_data = ppo.orig_data
