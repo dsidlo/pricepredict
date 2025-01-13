@@ -210,7 +210,6 @@ class PricePredict():
         self.orig_downloaded_data = None  # Save the originally downloaded data for later use.
         self.cached_data = None  # Interpolated cached data
         self.missing_rows_analysis = None  # Save the missing rows analysis for later review.
-        self.unagg_data = None  # Save the unaggregated data for later use.
         self.date_data = None  # Save the date data for later use.
         self.aug_data = None  # Save the augmented data for later use.
         self.features = None  # The number of features in the data
@@ -442,6 +441,24 @@ class PricePredict():
 
         return ticker_data
 
+    def invalidate_cache(self):
+        """
+        Invalidate the data caches.
+
+        Caches:
+        - self.original_data: The original data from Yahoo Finance.
+        - self.cached_data: The interpolated data.
+        - self.orig_data: The latest interpolated data from yahoo or from the cache
+        - self.orig_downloaded_data: The unaggregated data from the cache (if period is weekly)
+        - self.missing_rows_analysis: The missing rows analysis from the cache.
+
+        """
+        self.orig_data = None
+        self.orig_downloaded_data = None
+        self.cached_data = None
+        self.orig_downloaded_data = None
+        self.missing_rows_analysis = None
+
     def fetch_data_yahoo(self, ticker, date_start, date_end, period=None, force_fetch=False):
         """
         Load data from Yahoo Finance.
@@ -489,7 +506,6 @@ class PricePredict():
             self.orig_data = None
             self.orig_downloaded_data = None
             self.cached_data = None
-            self.unagg_data = None
             self.missing_rows_analysis = None
 
         if period is not None:
@@ -535,7 +551,6 @@ class PricePredict():
                     # Data usually needed by this object or the user.
                     self.date_start = date_start
                     self.date_end = date_end
-                    self.unagg_data = self.unagg_data.loc[date_start:date_end]
                     self.orig_data = wkly_data
                     self.cache_fetch_count += 1
                     return wkly_data, wkly_data.shape[1]
@@ -632,12 +647,6 @@ class PricePredict():
         # - data: latest data just downloaded from Yahoo Finance.
         # - orig_data: "data" filled in and interpolated.
 
-        # Caches:
-        # - self.original_data: The original data from Yahoo Finance.
-        # - self.cached_data: The interpolated data.
-        # - self.orig_data: The latest interpolated data from yahoo or from the cache
-        # - self.unagg_data: The unaggregated data from the cache (if period is weekly)
-
         # ----- Cache update logic -----
 
         # Check if the data lies byond the original cache.
@@ -725,7 +734,6 @@ class PricePredict():
         self.orig_data = interpolated_data
         self.cached_data = interpolated_data
         self.date_data = pd.Series(interpolated_data.index)
-        self.unagg_data = unagg_data
 
         return interpolated_data, interpolated_data.shape[1]
 
@@ -2588,7 +2596,8 @@ class PricePredict():
         plt.show()
         return plt
 
-    def periodic_correlation(self, ppo, pc_period_len: int = None, interpolate: bool = True):
+    def periodic_correlation(self, ppo, period_len: int = None,
+                             min_data_points: int = None):
         """
         Calculate the corr of the predicted prices with the actual prices.
         - Pearson Correlation (Raw and Normalized Correlation)
@@ -2603,54 +2612,51 @@ class PricePredict():
         :param ppo:
             A PricePredict object to correlate with self
         # Optional Parameters
-        :param pc_period_len:
+        :param period_len:
             Length of the period to calculate the correlation ending with the last date.
-        :param interpolate:
-            If True, the data will be interpolated to the same length.
-            Else, the originally downloaded data will be back-filled and forward-filled.
+        :param min_data_points:
+            The minimum number of data points to calculate the correlation.
         :return:
             A dictionary containing the correlation data.
         """
+
         # PPO must be a PricePredict object
-        if not isinstance(ppo, PricePredict):
+        if type(ppo) != PricePredict:
             e_txt = f"The ppo parameter must be a PricePredict object."
             self.logger.error(e_txt)
             raise ValueError(e_txt)
 
+        if period_len is not None and min_data_points is not None and period_len < min_data_points:
+            min_data_points = period_len
+
+        # Initially assume that we will use all the data
+        self_data = self.orig_data
+        ppo_data = ppo.orig_data
+
+        # Fetch the last 300 days of data for each stock
+        needed_end_dt = datetime.now().strftime("%Y-%m-%d")
+        needed_start_dt = (datetime.now() - timedelta(days=300)).strftime("%Y-%m-%d")
+        self_start_dt = self.date_start
+        self_end_dt = self.date_end
+        if self_data is None or needed_start_dt != self_start_dt or needed_end_dt != self_end_dt:
+            self.fetch_data_yahoo(self.ticker, needed_start_dt, needed_end_dt)
+            self_data = self.orig_data
+        ppo_start_dt = ppo.date_start
+        ppo_end_dt = ppo.date_end
+        if ppo_data is None or needed_start_dt != ppo_start_dt or needed_end_dt != ppo_end_dt:
+            ppo.fetch_data_yahoo(ppo.ticker, needed_start_dt, needed_end_dt)
+            ppo_data = ppo.orig_data
+        if not isinstance(ppo, PricePredict):
+            e_txt = f"The ppo parameter must be a PricePredict object."
+            self.logger.error(e_txt)
+            raise ValueError(e_txt)
         # Verify that the periods align.
         if self.period != ppo.period:
             e_txt = f"PPOs [{self.ticker}/{self.period}] [{ppo.ticker}/{ppo.period}] must have the same period."
             self.logger.error(e_txt)
             raise ValueError(e_txt)
 
-        # Check that self has enough data points
-        min_data_points = 7
-        if self.orig_data is None or len(self.orig_data) < min_data_points:
-            e_txt = f"self[{self.ticker}] has less than {min_data_points} data points."
-            raise ValueError(e_txt)
-        # Check that ppo has enough data points
-        if ppo.orig_data is None or len(ppo.orig_data) < min_data_points:
-            e_txt = f"ppo[{ppo.ticker}] has less than {min_data_points} data points."
-            raise ValueError(e_txt)
-
-        if interpolate:
-            # Get the original data from both objects
-            self_data = self.orig_data
-            ppo_data = ppo.orig_data
-        else:
-            # Get the latest start date and the earliest end date
-            best_start_date = max(self.orig_downloaded_data.index[0], ppo.orig_downloaded_data.index[0])
-            best_end_date = min(self.orig_downloaded_data.index[-1], ppo.orig_downloaded_data.index[-1])
-            # Create a data frome that contains all business days.
-            if self.period == self.PeriodWeekly:
-                all_days = pd.date_range(start=best_start_date, end=best_end_date, freq='W')
-            else:
-                all_days = pd.date_range(start=best_start_date, end=best_end_date, freq='B')
-            # Add rows into self_data that are not in ppo_data, such that fields other than 'Date' are NaN
-            self_data = self.orig_downloaded_data.reindex(all_days).bfill().ffill()
-            # Add rows into ppo_data that are not in self_data, such that fields other than 'Date' are NaN
-            ppo_data = ppo.orig_downloaded_data.reindex(all_days).bfill().ffill()
-
+        # Use as much data as possible for correlation analysis
         # Get the end date for each _date set
         self_end_date = self_data.index[-1]
         ppo_end_date = ppo_data.index[-1]
@@ -2665,16 +2671,16 @@ class PricePredict():
         # Truncate the start of the data to the best end date
         self_data = self_data[self_start_date:]
         ppo_data = ppo_data[ppo_start_date:]
-        # Trunkate the data to pc_period_len if it is not None
-        if pc_period_len is not None:
-            self_data = self_data[-pc_period_len:]
-            ppo_data = ppo_data[-pc_period_len:]
+        # Trunkate the data to period_len if it is not None
+        if period_len is not None:
+            self_data = self_data[-period_len:]
+            ppo_data = ppo_data[-period_len:]
         # Once again, make sure that we have enough data points
-        if len(self_data) < min_data_points:
-            e_txt = f"self[{self.ticker}] has less than {min_data_points} data points."
+        if min_data_points is not None and (self_data) < min_data_points:
+            e_txt = f"self[{self.ticker}] has less than {min_data_points} data points [{len(self_data)}]."
             raise ValueError(e_txt)
-        if len(ppo_data) < min_data_points:
-            e_txt = f"ppo[{ppo.ticker}] has less than {min_data_points} data points."
+        if min_data_points is not None and len(ppo_data) < min_data_points:
+            e_txt = f"ppo[{ppo.ticker}] has less than {min_data_points} data points [{len(ppo_data)}]."
             raise ValueError(e_txt)
         # Check that both data sets have the same length
         if len(self_data) != len(ppo_data):
