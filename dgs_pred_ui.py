@@ -52,6 +52,9 @@ logger.setLevel(logging.DEBUG)
 # Log to a file...
 logging.basicConfig(filename='dgs_pred_ui.log', level=logging.DEBUG)
 
+# Enable/Disable PricePredict Object validation
+global ValidatePPOs
+ValidatePPOs = False
 
 # Session State Variables
 # DataFrames...
@@ -1095,7 +1098,7 @@ def analyze_symbols(st, prog_bar, df_symbols,
     all_df_symbols = st.session_state[ss_AllDfSym]
     total_syms = all_df_symbols.shape[0]
     i = 0
-    # futures = []
+    syms_analyzed = {}
     # with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
     executor = fp.ThreadPoolExecutor(max_workers=8)
     with fp.TaskManager(executor) as tm:
@@ -1201,6 +1204,7 @@ def analyze_symbols(st, prog_bar, df_symbols,
                 continue
             else:
                 sym_, pp_ = future.result
+                syms_analyzed[sym_] = pp_
                 if sym_ is not None and pp_.period == PricePredict.PeriodWeekly:
                     st.session_state[ss_SymDpps_w][sym_] = pp_
                 elif sym_ is not None and pp_.period == PricePredict.PeriodDaily:
@@ -1208,8 +1212,10 @@ def analyze_symbols(st, prog_bar, df_symbols,
                 else:
                     logger.error(f"Error PricePredict Object has invalid period value: {pp_.period}")
 
-    # Save out the updated DataFrames and PricePredict objects
-    store_pp_objects(st, prog_bar)
+    if len(syms_analyzed) > 0:
+        # Save out the updated DataFrames and PricePredict objects
+        store_pp_objects(st, prog_bar, syms_analyzed)
+
     logger.info("--- Analyzing Symbols: Completed ---")
 
     sym_correlations('Weekly', st, st.session_state[ss_SymDpps_w], prog_bar)
@@ -1227,7 +1233,7 @@ def analyze_symbols(st, prog_bar, df_symbols,
     with st.spinner("Saving PricePredict Objects..."):
         merge_and_save(all_df_symbols, df_symbols)
 
-    # Save out the updated DataFrames and PricePredict objects
+    # Save all PricePredict objects as they all have been touched
     store_pp_objects(st, prog_bar)
     logger.info("--- Analyzing Symbols: Completed ---")
 
@@ -1334,6 +1340,9 @@ def load_pp_objects(st):
 
 
 def sync_dpps_objects(st, prog_bar):
+
+    global ValidatePPOs
+
     logger.info("Remove PricePredict objects that are not in the DataFrame")
     df_symbols = st.session_state[ss_AllDfSym]
     if ss_SymDpps_d not in st.session_state.keys() or ss_SymDpps_w not in st.session_state.keys():
@@ -1343,59 +1352,63 @@ def sync_dpps_objects(st, prog_bar):
     sym_dpp_d = st.session_state[ss_SymDpps_d].copy()
     sym_dpp_w = st.session_state[ss_SymDpps_w].copy()
     object_removed = []
-    i = 0
-    total_syms = len(sym_dpp_d)
-    for sym in sym_dpp_d:
-        if sym not in df_symbols.Symbol.values:
-            del st.session_state[ss_SymDpps_d][sym]
-        # Verify that dpp_d object is a PricePredict object
-        dpp_d = sym_dpp_d[sym]
-        if isinstance(dpp_d, PricePredict):
-            # Test pickling the object to a buffer.
-            buffer = io.BytesIO()
-            try:
-                dill.dump(dpp_d, buffer)
-            except Exception as e:
-                logger.warning(f"WARN: pickling PricePredict dpp_d object [{sym}]: {e}")
-                bo = dill.detect.badobjects(dpp_d, depth=2)
-                logger.error(f"Bad objects in [{dpp_d.ticker}]:w: {bo}")
-                objgraph.show_refs(dpp_d, filename=f'objgraph_{dpp_d.ticker}_dpp_d.png')
-                # Remove the unpicklable object
-                del st.session_state[ss_SymDpps_d][sym]
-                object_removed.append(sym+':d')
-        i += 1
-        if prog_bar is not None:
-            # Update the progress bar
-            prog_bar.progress(int(i / total_syms * 100), f"Validating Daily Objects: {sym} ({i}/{total_syms})")
 
-    i = 0
-    total_syms = len(sym_dpp_d)
-    for sym in sym_dpp_w:
-        if sym not in df_symbols.Symbol.values:
-            del st.session_state[ss_SymDpps_w][sym]
-        # Verify that dpp_d object is a PricePredict object
-        dpp_w = sym_dpp_w[sym]
-        if isinstance(dpp_w, PricePredict):
-            # Test pickling the object to a buffer.
-            buffer = io.BytesIO()
-            try:
-                dill.dump(dpp_w, buffer)
-            except Exception as e:
-                logger.warning(f"WARN: pickling PricePredict dpp_w object [{sym}]: {e}")
-                bo = dill.detect.badobjects(dpp_w, depth=2)
-                logger.error(f"Bad objects in [{dpp_w.ticker}]:w: {bo}")
-                objgraph.show_refs(dpp_d, filename=f'objgraph_{dpp_d.ticker}_dpp_w.png')
-                # Remove the unpicklable object
-                del st.session_state[ss_SymDpps_w][sym]
-                object_removed.append(sym+':w')
-        i += 1
-        if prog_bar is not None:
-            # Update the progress bar
-            prog_bar.progress(int(i / total_syms * 100), f"Validating Weekly Objects: {sym} ({i}/{total_syms})")
+    if ValidatePPOs is False:
+        total_syms = len(sym_dpp_d)
+        if total_syms > 0:
+            i = 0
+            for sym in sym_dpp_d:
+                if sym not in df_symbols.Symbol.values:
+                    del st.session_state[ss_SymDpps_d][sym]
+                # Verify that dpp_d object is a PricePredict object
+                dpp_d = sym_dpp_d[sym]
+                if isinstance(dpp_d, PricePredict):
+                    # Test pickling the object to a buffer.
+                    buffer = io.BytesIO()
+                    try:
+                        dill.dump(dpp_d, buffer)
+                    except Exception as e:
+                        logger.warning(f"WARN: pickling PricePredict dpp_d object [{sym}]: {e}")
+                        bo = dill.detect.badobjects(dpp_d, depth=2)
+                        logger.error(f"Bad objects in [{dpp_d.ticker}]:w: {bo}")
+                        objgraph.show_refs(dpp_d, filename=f'objgraph_{dpp_d.ticker}_dpp_d.png')
+                        # Remove the unpicklable object
+                        del st.session_state[ss_SymDpps_d][sym]
+                        object_removed.append(sym+':d')
+                i += 1
+                if prog_bar is not None:
+                    # Update the progress bar
+                    prog_bar.progress(int(i / total_syms * 100), f"Validating Daily Objects: {sym} ({i}/{total_syms})")
 
-    if len(object_removed) > 0:
-        logger.info(f'Deleted {len(object_removed)} Daily PricePredict objects: [{','.join(object_removed)}]')
-        st.session_state['exp_sym'].warning(f"Removed UnPicklable PricePredict objects: {object_removed}")
+        i = 0
+        total_syms = len(sym_dpp_d)
+        if total_syms > 0:
+            for sym in sym_dpp_w:
+                if sym not in df_symbols.Symbol.values:
+                    del st.session_state[ss_SymDpps_w][sym]
+                # Verify that dpp_d object is a PricePredict object
+                dpp_w = sym_dpp_w[sym]
+                if isinstance(dpp_w, PricePredict):
+                    # Test pickling the object to a buffer.
+                    buffer = io.BytesIO()
+                    try:
+                        dill.dump(dpp_w, buffer)
+                    except Exception as e:
+                        logger.warning(f"WARN: pickling PricePredict dpp_w object [{sym}]: {e}")
+                        bo = dill.detect.badobjects(dpp_w, depth=2)
+                        logger.error(f"Bad objects in [{dpp_w.ticker}]:w: {bo}")
+                        objgraph.show_refs(dpp_d, filename=f'objgraph_{dpp_d.ticker}_dpp_w.png')
+                        # Remove the unpicklable object
+                        del st.session_state[ss_SymDpps_w][sym]
+                        object_removed.append(sym+':w')
+                i += 1
+                if prog_bar is not None:
+                    # Update the progress bar
+                    prog_bar.progress(int(i / total_syms * 100), f"Validating Weekly Objects: {sym} ({i}/{total_syms})")
+
+        if len(object_removed) > 0:
+            logger.info(f'Deleted {len(object_removed)} Daily PricePredict objects: [{','.join(object_removed)}]')
+            st.session_state['exp_sym'].warning(f"Removed UnPicklable PricePredict objects: {object_removed}")
 
     # Make sure that we have PricePredict objects for all the symbols in the DataFrame
     for sym in df_symbols.Symbol.values:
@@ -1415,73 +1428,54 @@ def sync_dpps_objects(st, prog_bar):
             st.session_state[ss_SymDpps_w][sym] = pp
 
 
-def store_pp_objects(st, prog_bar):
+def _store_pp_objects(st, prog_bar, syms_dict,
+                      pb_text: str = "Saving PricePredict objects..."):
 
-    sync_dpps_objects(st, prog_bar)
-
-    logger.info("Saving PricePredict objects (Weekly Object)...")
+    logger.info("PricePredict objects...")
 
     failed_ppws = []
     i = 0
-    total_syms = len(st.session_state[ss_SymDpps_w])
-    for sym_w in st.session_state[ss_SymDpps_w]:
-        ppw = st.session_state[ss_SymDpps_w][sym_w]
-        if ppw is not None:
-            ticker = ppw.ticker
-            if ppw.date_data is None:
+    total_syms = len(syms_dict)
+    for sym in sorted(syms_dict.keys()):
+        ppo = syms_dict[sym]
+        if ppo is not None:
+            ticker = ppo.ticker
+            if ppo.date_data is None:
                 i += 1
                 continue
-            last_date = ppw.date_data.iloc[-1].strftime("%Y-%m-%d")
-            period = ppw.period
+            last_date = ppo.date_data.iloc[-1].strftime("%Y-%m-%d")
+            period = ppo.period
             obj_file_name = f"{ticker}_{period}_{last_date}.dill"
-            file_path = './ppo/' + obj_file_name
+            file_path = ppo_dir + obj_file_name
             try:
                 with open(file_path, "wb") as f:
-                    f.write(ppw.serialize_me())
+                    f.write(ppo.serialize_me())
             except Exception as e:
-                bo = dill.detect.badobjects(ppw, depth=2)
-                logger.error(f"Bad objects in [{ppw.ticker}]:w: {bo}")
-                objgraph.show_refs(sym_dpps_w_, filename=f'objgraph_{ppw.ticker}_dpp_d.png')
-                logger.error(f"Error saving PricePredict object [{sym_w}]: {e}")
-                failed_ppws.append(sym_w)
+                bo = dill.detect.badobjects(ppo, depth=2)
+                logger.error(f"Bad objects in [{ppo.ticker}]:w: {bo}")
+                objgraph.show_refs(sym_dpps_w_, filename=f'objgraph_{ppo.ticker}_dpp_d.png')
+                logger.error(f"Error saving PricePredict object [{sym}:{ppo.period}]: {e}")
+                failed_ppws.append(sym)
         i += 1
         # Update the progress bar
-        prog_bar.progress(int(i / total_syms * 100), f"Saving Weekly Objects: {ppw.ticker} ({i}/{total_syms})")
+        prog_bar.progress(int(i / total_syms * 100), f"{pb_text}: {ppo.ticker}:{ppo.period} ({i}/{total_syms})")
 
     if len(failed_ppws) > 0:
         st.warning(f"Failed to save PricePredict objects: {failed_ppws}")
 
-    logger.info("Saving PricePredict objects (Daily Object)...")
 
-    failed_ppds = []
-    i = 0
-    total_syms = len(st.session_state[ss_SymDpps_d])
-    for sym_d in st.session_state[ss_SymDpps_d]:
-        ppd = st.session_state[ss_SymDpps_d][sym_d]
-        if ppd is not None:
-            ticker = ppd.ticker
-            if ppd.date_data is None:
-                continue
-            last_date = ppd.date_data.iloc[-1].strftime("%Y-%m-%d")
-            period = ppd.period
-            obj_file_name = f"{ticker}_{period}_{last_date}.dill"
-            file_path = './ppo/' + obj_file_name
-            try:
-                with open(file_path, "wb") as f:
-                    f.write(ppd.serialize_me())
-            except Exception as e:
-                bo = dill.detect.badobjects(ppd, depth=2)
-                logger.error(f"Bad objects in [{ppd.ticker}]:w: {bo}")
-                objgraph.show_refs(sym_dpps_w_, filename=f'objgraph_{ppd.ticker}_dpp_d.png')
-                logger.error(f"Error saving PricePredict object [{sym_d}]: {e}")
-                failed_ppds.append(sym_d)
-        i += 1
-        # Update the progress bar
-        prog_bar.progress(int(i / total_syms * 100), f"Saving Daily Objects: {ppd.ticker} ({i}/{total_syms})")
+def store_pp_objects(st, prog_bar, syms_dict=None):
 
-    if len(failed_ppws) > 0:
-        st.warning(f"Failed to save PricePredict objects: {failed_ppds}")
+    sync_dpps_objects(st, prog_bar)
 
+    if syms_dict is not None:
+        logger.info("Updated PricePredict objects...")
+        _store_pp_objects(st, prog_bar, syms_dict, pb_text="Saving Updated objects...")
+    else:
+        logger.info("Saving PricePredict objects (Weekly Object)...")
+        _store_pp_objects(st, prog_bar, st.session_state[ss_SymDpps_w], pb_text="Saving Weekly objects...")
+        logger.info("Saving PricePredict objects (Daily Object)...")
+        _store_pp_objects(st, prog_bar, st.session_state[ss_SymDpps_d], pb_text="Saving Daily objects...")
 
 def task_pull_data(symbol_, dpp):
     # Get datetime 24 hours ago

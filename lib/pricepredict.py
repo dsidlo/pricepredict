@@ -625,6 +625,9 @@ class PricePredict():
         missing_rows = missing_rows_mask.sum()
         # Group by month to get the distribution
         missing_distribution = missing_rows_mask.groupby(pd.Grouper(freq='ME')).sum()
+        # Make sure that the 'Adj Close' column exists.
+        if 'Adj Close' not in interpolated_data.columns:
+            interpolated_data['Adj Close'] = interpolated_data['Close']
 
         # Normalize the datetime index.
         if self.period not in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
@@ -632,7 +635,6 @@ class PricePredict():
             interpolated_data.index = interpolated_data.index.tz_localize(None)
 
         # Aggregate the data to a weekly period, if nd
-        unagg_data = None
         orig_data = net_data.copy(deep=True)
         if self.period == self.PeriodWeekly:
             interpolated_data = self.aggregate_data(interpolated_data, period=self.PeriodWeekly)
@@ -743,8 +745,13 @@ class PricePredict():
         :param data:
         :return:
         """
-        data = data.resample(period).agg(
-            {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Adj Close': 'last', 'Volume': 'sum'})
+        try:
+            data = data.resample(period).agg(
+                {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Adj Close': 'last', 'Volume': 'sum'})
+        except Exception as e:
+            e_txt = f"Error: Ticker[{self.ticker}] resample() failed for period [{period}].\n{e}"
+            raise RuntimeError(e_txt)
+
         return data
 
     def augment_data(self, data, feature_cnt):
@@ -2441,8 +2448,47 @@ class PricePredict():
             tot_deltas += pred_delta
             trd_rng = abs(self.orig_data['High'].iloc[i] - self.orig_data['Low'].iloc[i])
             tot_tradrng += trd_rng
-            self.logger.info(
-                f"{i}: Close: {actual.round(2)}  Predicted: ${predval.round(2)}  Actual: ${actual.round(2)}  Delta: ${pred_delta.round(6)}  Trade Rng: ${trd_rng.round(2)}")
+            self.logger.info(f"{i}: Close: {actual.round(2)}  Predicted: ${predval.round(2)}  Actual: ${actual.round(2)}" +
+                             f"  Delta: ${pred_delta.round(6)}  Trade Rng: ${trd_rng.round(2)}")
+
+        # Get up days vs down days
+        self_data = self.orig_data
+        self_adj = self.adj_pred
+        self_prd = self.pred
+        close_col = 'Adj Close'
+        close_idx = 0
+        open_idx = 0
+        self_close_trends = [1 if self_data[close_col].iloc[i] > self_data['Open'].iloc[i] else -1 for i in range(len(self_data))]
+        self_prd_trends = [1 if self_prd[i - 1][close_idx] > self_prd[i][open_idx] else -1 for i in range(1, len(self_prd))]
+        self_adj_trends = [1 if self_adj[i - 1][close_idx] > self_adj[i][open_idx] else -1 for i in range(1, len(self_adj))]
+        min_len = min(len(self_close_trends), len(self_adj_trends))
+        self_close_trends = self_close_trends[-min_len:]
+        self_adj_trends = self_adj_trends[-min_len:]
+
+        # Get the min length betweem se;f_close_trends self_adj_trends and self_pred_trends
+        min_len = min(len(self_close_trends), len(self_adj_trends), len(self_prd_trends))
+        # Truncate the lists to the min length
+        self_close_trends = self_close_trends[-min_len:]
+        self_adj_trends = self_adj_trends[-min_len:]
+        self_prd_trends = self_prd_trends[-min_len:]
+
+        # Calculate the corr for adjusted predictions
+        corr_adj_list = [self_close_trends[i] + self_adj_trends[i] for i in range(len(self_close_trends))]
+        total_days = len(corr_adj_list)
+        corr_adj_days = corr_adj_list.count(2) + corr_adj_list.count(-2)
+        uncorr_adj_days = corr_adj_list.count(0)
+        pct_adj_corr = round(corr_adj_days / total_days * 100, 4)
+        pct_adj_uncorr = round(uncorr_adj_days / total_days * 100, 4)
+
+        # Calculate the corr for original predictions
+        corr_prd_list = [self_close_trends[i] + self_prd_trends[i] for i in range(len(self_close_trends))]
+        total_days = len(corr_prd_list)
+        corr_prd_days = corr_prd_list.count(2) + corr_prd_list.count(-2)
+        uncorr_prd_days = corr_prd_list.count(0)
+        pct_prd_corr = round(corr_prd_days / total_days * 100, 4)
+        pct_prd_uncorr = round(uncorr_prd_days / total_days * 100, 4)
+
+            # Calculate a df pf trends of 'Adj Close' as 1-up 0-flat -1-down
 
         self.logger.info("============================================================================")
         self.logger.info(f"Mean Trading Range: ${round(tot_tradrng / elements, 2)}")
@@ -2450,9 +2496,13 @@ class PricePredict():
         self.logger.info("============================================================================")
 
         analysis = dict()
-        analysis['actual_vs_pred'] = {
-            'mean_trading_range': round(tot_tradrng / elements, 2),
-            'mean_delta': round((tot_deltas / elements), 2)}
+        analysis['actual_vs_pred'] = {'mean_trading_range': round(tot_tradrng / elements, 2),
+                                      'mean_delta': round((tot_deltas / elements), 2),
+                                      'corr_day_cnt': corr_prd_days,
+                                      'corr_days': corr_prd_days,
+                                      'uncorr_days': uncorr_prd_days,
+                                      'pct_corr': round(pct_prd_corr, 4),
+                                      'pct_uncorr': round(pct_prd_uncorr, 4)}
 
         elements = len(self.adj_pred_close)
         # logger.info(f"elements:{elements}")
@@ -2466,16 +2516,20 @@ class PricePredict():
             trd_rng = abs(self.orig_data['High'].iloc[i] - self.orig_data['Low'].iloc[i])
             tot_tradrng += trd_rng
             self.logger.info(
-                f"{i}: Close {actual.round(2)}  Predicted: ${predval.round(2)}  Actual: ${actual.round(2)}  Delta:${pred_delta.round(6)}  Trade Rng: ${trd_rng.round(2)}")
+                f"{i}: Close {actual.round(2)}  Predicted: ${predval.round(2)}  Actual: ${actual.round(2)}" +
+                f"  Delta:${pred_delta.round(6)}  Trade Rng: ${trd_rng.round(2)}")
 
         self.logger.info("============================================================================")
         self.logger.info(f"Mean Trading Range: ${round(tot_tradrng / elements, 2)}")
         self.logger.info(f"Mean Delta (Actual vs Prediction): ${round((tot_deltas / elements), 2)}")
         self.logger.info("============================================================================")
 
-        analysis['actual_vs_adj_pred'] = {
-            'mean_trading_range': round(tot_tradrng / elements, 2),
-            'mean_delta': round((tot_deltas / elements), 2)}
+        analysis['actual_vs_adj_pred'] = {'mean_trading_range': round(tot_tradrng / elements, 2),
+                                          'mean_delta': round((tot_deltas / elements), 2),
+                                          'corr_days': corr_adj_days,
+                                          'uncorr_days': uncorr_adj_days,
+                                          'pct_corr': round(pct_adj_corr, 4),
+                                          'pct_uncorr': round(pct_adj_uncorr , 4)}
 
         if self.seasonal_dec is not None:
             # Analyze the trend corr between seasonality trend and the
@@ -2509,10 +2563,10 @@ class PricePredict():
             sd_trends = sd_trends[-min_len:]
 
             # Calculate the corr
-            corr_list = [self_trends[i] + sd_trends[i] for i in range(len(self_trends))]
-            total_days = len(corr_list)
-            correlated_days = corr_list.count(2) + corr_list.count(-2)
-            uncorrelated_days = corr_list.count(0)
+            corr_adj_list = [self_trends[i] + sd_trends[i] for i in range(len(self_trends))]
+            total_days = len(corr_adj_list)
+            correlated_days = corr_adj_list.count(2) + corr_adj_list.count(-2)
+            uncorrelated_days = corr_adj_list.count(0)
             pct_corr = correlated_days / total_days
             pct_uncorr = uncorrelated_days / total_days
             self.season_corr = pct_corr
@@ -2537,13 +2591,13 @@ class PricePredict():
                 'total_days': f'{total_days}',
                 'correlated_days': f'{correlated_days}',
                 'uncorrelated_days': f'{uncorrelated_days}',
-                'pct_corr': f'{self.season_corr}',
-                'pct_uncorr': f'{pct_uncorr}'}
+                'pct_corr': f'{round(self.season_corr * 100, 4)}',
+                'pct_uncorr': f'{round(pct_uncorr * 100, 4)}'}
 
             analysis['pred_rankings'] = {
                 'season_last_delta': f'{self.season_last_delta}',
                 'season_rank': f'{self.season_rank}',
-                'pred_last_delta': f'{self.pred_last_delta}',
+                'pred_last_delta': f'{round(self.pred_last_delta, 4)}',
                 'pred_rank': f'{self.pred_rank}'}
 
             self.pred_strength = round((self.pred_rank + (self.season_rank * self.season_corr)) / 20, 4)
@@ -2620,9 +2674,12 @@ class PricePredict():
             A dictionary containing the correlation data.
         """
 
+        # print(f'ppo type: {type(ppo).__name__}')
+
         # PPO must be a PricePredict object
-        if type(ppo) != PricePredict:
-            e_txt = f"The ppo parameter must be a PricePredict object."
+        if type(ppo).__name__ != type(self).__name__:
+            e_txt = (f"The ppo parameter must be a {type(self).__name__} object." +
+                     f" Incoming ppo type: {type(ppo).__name__}")
             self.logger.error(e_txt)
             raise ValueError(e_txt)
 
@@ -2660,7 +2717,6 @@ class PricePredict():
         # Get the end date for each _date set
         self_end_date = self_data.index[-1]
         ppo_end_date = ppo_data.index[-1]
-        # Get the smaller of the end dates between self and ppo
         best_end_date = min(self_end_date, ppo_end_date)
         # Truncate the data to the best end date
         self_data = self_data[:best_end_date]
@@ -2668,9 +2724,10 @@ class PricePredict():
         # Get the best start_date
         self_start_date = self_data.index[0]
         ppo_start_date = ppo_data.index[0]
+        best_start_date = max(self_start_date, ppo_start_date)
         # Truncate the start of the data to the best end date
-        self_data = self_data[self_start_date:]
-        ppo_data = ppo_data[ppo_start_date:]
+        self_data = self_data[best_start_date:]
+        ppo_data = ppo_data[best_start_date:]
         # Trunkate the data to period_len if it is not None
         if period_len is not None:
             self_data = self_data[-period_len:]
@@ -2701,11 +2758,9 @@ class PricePredict():
         corr_period_len = len(self_data)
 
         # Get up days vs down days
-        close_col = 'Close'
+        close_col = 'Adj Close'
         self_closes = self_data[close_col]
         self_closes = self_closes.bfill().ffill()
-        if close_col not in self_data.columns:
-            close_col = 'Adj Close'
         self_trends = [1 if self_data[close_col].iloc[i] > self_data['Open'].iloc[i] else -1 for i in
                        range(len(self_data))]
         close_col = 'Close'
@@ -2724,7 +2779,7 @@ class PricePredict():
         try_tracker = 'Before Correlation Functions'
         try:
             corr_list = [self_trends[i] + ppo_trends[i] for i in range(len(self_trends))]
-            # Concatinage self_trends with ppo_trends into one dataframe whose columns are stock_a and stock_b
+            # Concatenate self_trends with ppo_trends into one dataframe whose columns are stock_a and stock_b
             corr_trends_df = pd.DataFrame({'stock_a': self_trends, 'stock_b': ppo_trends})
             corr_close_df = pd.DataFrame({'stock_a': self_closes, 'stock_b': ppo_closes})
             corr_close_df = corr_close_df.bfill().ffill()
@@ -3039,9 +3094,14 @@ class PricePredict():
         return lzma.compress(dill.dumps(obj))
 
     @staticmethod
-    def unserialize(obj):
+    def unserialize(obj, ignore: bool = None):
+
+        if ignore is None and ignore is False:
+            ignore = False
+            PricePredict.__module__ = '__main__'
+
         # Decompress the object
-        return dill.loads(lzma.decompress(obj))
+        return dill.loads(lzma.decompress(obj), ignore=ignore)
 
     def serialize_me(self):
         # Compress the object
