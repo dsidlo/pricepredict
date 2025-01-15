@@ -548,7 +548,7 @@ class PricePredict():
 
                     wkly_data = self.cached_data.loc[w_date_start:w_date_end]
 
-                    # Data usually needed by this object or the user.
+                    # Set the objects date_start and date_end properties to the last fetch.
                     self.date_start = date_start
                     self.date_end = date_end
                     self.orig_data = wkly_data
@@ -2650,7 +2650,9 @@ class PricePredict():
         plt.show()
         return plt
 
-    def periodic_correlation(self, ppo, period_len: int = None,
+    def periodic_correlation(self, ppo,
+                             start_date: str = None,
+                             period_len: int = None,
                              min_data_points: int = None):
         """
         Calculate the corr of the predicted prices with the actual prices.
@@ -2668,13 +2670,13 @@ class PricePredict():
         # Optional Parameters
         :param period_len:
             Length of the period to calculate the correlation ending with the last date.
+        :param start_date:
+            If set grab data from start_date to the end of the data or for period_len days.
         :param min_data_points:
             The minimum number of data points to calculate the correlation.
         :return:
             A dictionary containing the correlation data.
         """
-
-        # print(f'ppo type: {type(ppo).__name__}')
 
         # PPO must be a PricePredict object
         if type(ppo).__name__ != type(self).__name__:
@@ -2682,36 +2684,58 @@ class PricePredict():
                      f" Incoming ppo type: {type(ppo).__name__}")
             self.logger.error(e_txt)
             raise ValueError(e_txt)
+        if ppo.period != self.period:
+            e_txt = f"PPOs [{self.ticker}/{self.period}] [{ppo.ticker}/{ppo.period}] must have the same period."
+            self.logger.error(e_txt)
+            raise ValueError(e_txt)
+
+
+
+        if start_date is not None:
+            # Initially assume that we will use all the data
+            # - Convert start_date to a datetime object
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            if period_len is None:
+                end_date = datetime.now().strftime("%Y-%m-%d").strftime("%Y-%m-%d")
+            else:
+                # Calculate the end date based on the period_len
+                if self.period == PricePredict.PeriodDaily:
+                    end_date = (start_dt + timedelta(days=period_len)).strftime("%Y-%m-%d")
+                elif self.period == PricePredict.PeriodWeekly:
+                    end_date = (start_dt + timedelta(weeks=period_len)).strftime("%Y-%m-%d")
+            # Load the data from Yahoo Finance
+            self_data, feature_cnt = self.fetch_data_yahoo(self.ticker, start_date, end_date)
+            ppo_data, feature_cnt = ppo.fetch_data_yahoo(ppo.ticker, start_date, end_date)
+            if self_data is None or ppo_data is None:
+                e_txt = f"Error: Could not load the data for correlation analysis."
+                self.logger.error(e_txt)
+                raise ValueError(e_txt)
+        else:
+            self_data = self.orig_data
+            ppo_data = ppo.orig_data
+
 
         if period_len is not None and min_data_points is not None and period_len < min_data_points:
             min_data_points = period_len
 
-        # Initially assume that we will use all the data
-        self_data = self.orig_data
-        ppo_data = ppo.orig_data
-
-        # Fetch the last 300 days of data for each stock
-        needed_end_dt = datetime.now().strftime("%Y-%m-%d")
-        needed_start_dt = (datetime.now() - timedelta(days=300)).strftime("%Y-%m-%d")
-        self_start_dt = self.date_start
-        self_end_dt = self.date_end
-        if self_data is None or needed_start_dt != self_start_dt or needed_end_dt != self_end_dt:
-            self.fetch_data_yahoo(self.ticker, needed_start_dt, needed_end_dt)
-            self_data = self.orig_data
-        ppo_start_dt = ppo.date_start
-        ppo_end_dt = ppo.date_end
-        if ppo_data is None or needed_start_dt != ppo_start_dt or needed_end_dt != ppo_end_dt:
-            ppo.fetch_data_yahoo(ppo.ticker, needed_start_dt, needed_end_dt)
-            ppo_data = ppo.orig_data
-        if not isinstance(ppo, PricePredict):
-            e_txt = f"The ppo parameter must be a PricePredict object."
-            self.logger.error(e_txt)
-            raise ValueError(e_txt)
-        # Verify that the periods align.
-        if self.period != ppo.period:
-            e_txt = f"PPOs [{self.ticker}/{self.period}] [{ppo.ticker}/{ppo.period}] must have the same period."
-            self.logger.error(e_txt)
-            raise ValueError(e_txt)
+        if start_date is None:
+            # Get the require dataset for self and the incoming ppo.
+            needed_end_dt = datetime.now().strftime("%Y-%m-%d")
+            needed_start_dt = (datetime.now() - timedelta(days=300)).strftime("%Y-%m-%d")
+            self_start_dt = self.date_start
+            self_end_dt = self.date_end
+            ppo_start_dt = ppo.date_start
+            ppo_end_dt = ppo.date_end
+            if self_data is None or needed_start_dt != self_start_dt or needed_end_dt != self_end_dt:
+                self_data, feature_cnt = self.fetch_data_yahoo(self.ticker, needed_start_dt, needed_end_dt)
+                self_data = self.orig_data
+            if ppo_data is None or needed_start_dt != ppo_start_dt or needed_end_dt != ppo_end_dt:
+                ppo_data, feature_cnt = ppo.fetch_data_yahoo(ppo.ticker, needed_start_dt, needed_end_dt)
+                ppo_data = ppo.orig_data
+            self_start_dt = self.date_start
+            self_end_dt = self.date_end
+            ppo_start_dt = ppo.date_start
+            ppo_end_dt = ppo.date_end
 
         # Use as much data as possible for correlation analysis
         # Get the end date for each _date set
@@ -2732,6 +2756,7 @@ class PricePredict():
         if period_len is not None:
             self_data = self_data[-period_len:]
             ppo_data = ppo_data[-period_len:]
+
         # Once again, make sure that we have enough data points
         if min_data_points is not None and (self_data) < min_data_points:
             e_txt = f"self[{self.ticker}] has less than {min_data_points} data points [{len(self_data)}]."

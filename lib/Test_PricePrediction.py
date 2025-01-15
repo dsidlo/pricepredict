@@ -104,6 +104,8 @@ class Test_PricePredict(TestCase):
         end_date = "2023-12-31"
         # Load data from Yahoo Finance
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=True)
+        self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
+        self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
         self.assertEqual(pp.ticker, ticker, "Wrong ticker")
 
@@ -114,6 +116,8 @@ class Test_PricePredict(TestCase):
         pp.orig_downloaded_data = None # Because we are re-using the pp object
         pp.cached_data = None # Because we are re-using the pp object
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=True)
+        self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
+        self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
         self.assertEqual(pp.ticker, ticker, "Wrong ticker")
 
@@ -125,6 +129,8 @@ class Test_PricePredict(TestCase):
         pp.orig_downloaded_data = None # Because we are re-using the pp object
         pp.cached_data = None # Because we are re-using the pp object
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=True)
+        self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
+        self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
         self.assertEqual(pp.ticker, ticker, "Wrong ticker")
         # Now test fetch caching behaviour
@@ -132,6 +138,8 @@ class Test_PricePredict(TestCase):
         pp.orig_downloaded_data = None # Because we are re-using the pp object
         pp.cached_data = None # Because we are re-using the pp object
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
+        self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
         self.assertEqual(pp.ticker, ticker, "Wrong ticker")
 
@@ -143,6 +151,8 @@ class Test_PricePredict(TestCase):
         pp.orig_downloaded_data = None # Because we are re-using the pp object
         pp.cached_data = None # Because we are re-using the pp object
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
+        self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
         self.assertEqual(pp.ticker, ticker, "Wrong ticker")
         # Now test weekly caching behaviour
@@ -188,6 +198,8 @@ class Test_PricePredict(TestCase):
         pp.orig_downloaded_data = None # Because we are re-using the pp object
         pp.cached_data = None # Because we are re-using the pp object
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
+        self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
         pp_data = pp.orig_data[pp.date_start:pp.date_end]
         self.assertTrue(pp_data is not None, "pp.cached_data is None")
@@ -199,6 +211,8 @@ class Test_PricePredict(TestCase):
         data_fetch_count = pp.data_fetch_count
         cache_fetch_count = pp.cache_fetch_count
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
+        self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
         self.assertTrue(data is not None, "pp.cached_data is None")
         self.assertTrue(data[pp.date_start:pp.date_end].empty is not True, "pp.cached_data: Expected data")
@@ -215,6 +229,8 @@ class Test_PricePredict(TestCase):
         cache_fetch_count = pp.cache_fetch_count
         cache_update_count = pp.cache_update_count
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
+        self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
         self.assertTrue(pp.orig_downloaded_data is not None, "pp.orig_downloaded_data is None")
         self.assertTrue(pp.cached_data is not None, "pp.orig_downloaded_data is None")
@@ -237,6 +253,8 @@ class Test_PricePredict(TestCase):
         orig_dwnld_st_dt = pp.orig_downloaded_data.index[0]
         orig_dwnld_en_dt = pp.orig_downloaded_data.index[-1]
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
+        self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
         self.assertTrue(data is not None, "pp.cached_data is None")
         self.assertLess(orig_data_len, len(pp.orig_data), "pp.orig_data: Should be larger")
@@ -264,6 +282,8 @@ class Test_PricePredict(TestCase):
         orig_dwnld_st_dt = pp.orig_downloaded_data.index[0]
         orig_dwnld_en_dt = pp.orig_downloaded_data.index[-1]
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
+        self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
         self.assertTrue(data is not None, "pp.cached_data is None")
         self.assertLess(orig_data_len, len(pp.orig_data), "pp.orig_data: Should be larger")
@@ -291,6 +311,8 @@ class Test_PricePredict(TestCase):
         orig_dwnld_st_dt = pp.orig_downloaded_data.index[0]
         orig_dwnld_en_dt = pp.orig_downloaded_data.index[-1]
         data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
+        self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
         self.assertTrue(data is not None, "pp.cached_data is None")
         self.assertLess(orig_data_len, len(pp.orig_data), "pp.orig_data: Should be larger")
@@ -1401,6 +1423,15 @@ class Test_PricePredict(TestCase):
         # Test exact return values is unstable as missing data is interpolated
         # So, we only test that the number if attributes is correct
         self.assertEqual(len(ret_dict), 16, f"ret_dict: Wrong length")
+
+        ret_dict = pp1.periodic_correlation(pp2, start_date="2023-01-01", period_len=30)
+        self.assertEqual("2023-01-01", pp1.date_start, f"pp1.date_data[0]: Wrong date")
+        self.assertEqual("2023-07-30", pp1.date_end, f"pp1.date_data[-1]: Wrong date")
+        self.assertEqual("2023-01-01", pp2.date_start, f"pp1.date_data[0]: Wrong date")
+        self.assertEqual("2023-07-30", pp2.date_end, f"pp1.date_data[-1]: Wrong date")
+        self.assertEqual(30, len(pp1.orig_data), f"pp1.orig_data: Wrong length")
+        self.assertEqual(16, len(ret_dict),f"ret_dict: Wrong length")
+
 
     def test_seasonality(self):
         # Create an instance of the price prediction object
