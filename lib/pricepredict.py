@@ -2689,8 +2689,6 @@ class PricePredict():
             self.logger.error(e_txt)
             raise ValueError(e_txt)
 
-
-
         if start_date is not None:
             # Initially assume that we will use all the data
             # - Convert start_date to a datetime object
@@ -2713,7 +2711,6 @@ class PricePredict():
         else:
             self_data = self.orig_data
             ppo_data = ppo.orig_data
-
 
         if period_len is not None and min_data_points is not None and period_len < min_data_points:
             min_data_points = period_len
@@ -3122,6 +3119,8 @@ class PricePredict():
     def unserialize(obj, ignore: bool = None):
 
         if ignore is None and ignore is False:
+            # But default use the current PricePredict Module
+            # vs the one packaged in the dill object.
             ignore = False
             PricePredict.__module__ = '__main__'
 

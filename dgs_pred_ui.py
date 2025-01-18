@@ -1776,7 +1776,8 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
                                 + " data points. Wont calculate correlations.")
                     continue
                 try:
-                    corr = target_sym.periodic_correlation(source_sym)
+                    # Perform correlation analysis for target_sym vs source_sym for the last 300 days/weeks.
+                    corr = target_sym.periodic_correlation(source_sym, period_len=300)
                     sym_corr[(tsym, ssym)] = corr
                 except Exception as e:
                     logger.error(f"Error calculating corr for [{tsym}:{ssym}] period[D]: {e}")
