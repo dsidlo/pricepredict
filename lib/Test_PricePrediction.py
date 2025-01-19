@@ -1145,7 +1145,7 @@ class Test_PricePredict(TestCase):
             success = True
         self.assertTrue(success, "train_and_test: Success should be True")
 
-        # self.logger.info("Current Dir: ", os.getcwd())
+        # self.mylogger.info("Current Dir: ", os.getcwd())
 
         # Save the prediction data
         file_path, fig = pp.gen_prediction_chart(last_candles=40, save_plot=True)

@@ -160,7 +160,7 @@ class PricePredict():
                  val_split=0.1,  # The validation split used during training.
                  keras_verbosity=0,
                  verbose=True,  # Print debug information
-                 logger=None,  # The logger for this object
+                 logger=None,  # The mylogger for this object
                  logger_file_path=None,  # The path to the log file
                  log_level=None,  # The logging level
                  force_training=False,  # Force training the model
@@ -282,10 +282,10 @@ class PricePredict():
         self.cache_fetch_count = 0  # The cache fetch count
         self.cache_update_count = 0  # The cache update count
         self.spread_analysis = {}  # Spread analysis against other tickers
-        self.logger = None  # The logger for this object
+        self.logger = None  # The mylogger for this object
 
 
-        # Create a logger for this object.
+        # Create a mylogger for this object.
         if logger is None:
             self.logger = logging.getLogger(__name__)
         else:
@@ -294,23 +294,23 @@ class PricePredict():
         silence_tensorflow()
 
         # # Set the objects logging to stdout by default for testing.
-        # # The logger and the logging-level can be overridden by the calling program
+        # # The mylogger and the logging-level can be overridden by the calling program
         # # once the object is instantiated.
-        # if self.logger.hasHandlers():
-        #     self.logger.handlers.clear()
+        # if self.mylogger.hasHandlers():
+        #     self.mylogger.handlers.clear()
         # if tf.get_logger().hasHandlers():
         #     tf.get_logger().handlers.clear()
 
         # # Turn off this objects logging to stdout
-        # self.logger.propagate = False
+        # self.mylogger.propagate = False
         # # Turn off tensorflow logging to stdout
         # tf.get_logger().propagate = False
 
-        # # Set the logger to stdout by default.
+        # # Set the mylogger to stdout by default.
         # if logger_file_path is None:
-        #     self.logger.addHandler(logging.StreamHandler(stream=sys.stdout))
+        #     self.mylogger.addHandler(logging.StreamHandler(stream=sys.stdout))
         # else:
-        #     self.logger.addHandler(logging.FileHandler(filename=logger_file_path))
+        #     self.mylogger.addHandler(logging.FileHandler(filename=logger_file_path))
         #     tf.get_logger().addHandler(logging.FileHandler(filename=logger_file_path))
 
         # Set the logging level.
@@ -749,7 +749,7 @@ class PricePredict():
             data = data.resample(period).agg(
                 {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Adj Close': 'last', 'Volume': 'sum'})
         except Exception as e:
-            e_txt = f"Error: Ticker[{self.ticker}] resample() failed for period [{period}].\n{e}"
+            e_txt = f"Error: Ticker[{self.ticker}:{self.period}] resample() failed for period [{period}].\n{e}"
             raise RuntimeError(e_txt)
 
         return data
@@ -766,8 +766,8 @@ class PricePredict():
             data_date       # An array of dates (Extracted from the data)
         """
 
-        # logger.info("= Before Adding Indicators ========================================================")
-        # logger.info(data.tail(10))
+        # mylogger.info("= Before Adding Indicators ========================================================")
+        # mylogger.info(data.tail(10))
 
         # Make a copy of the data to that we don't modify orig_data
         aug_data = data.copy(deep=True)
@@ -785,16 +785,16 @@ class PricePredict():
         aug_data['DPO9'] = ta.dpo(aug_data.Close, length=9, lookahead=False, centered=False)
         feature_cnt += 1
 
-        # logger.info("= After Adding DPO2 ========================================================")
-        # logger.info(aug_data.tail(10))
+        # mylogger.info("= After Adding DPO2 ========================================================")
+        # mylogger.info(aug_data.tail(10))
         #
         # On Balance Volume
         if aug_data['Volume'].iloc[-1] > 0:
             aug_data = aug_data.join(ta.aobv(aug_data.Close, aug_data.Volume, fast=True, min_lookback=3, max_lookback=9))
             feature_cnt += 7  # ta.aobv adds 7 columns
 
-        # logger.info("= After Adding APBV ========================================================")
-        # logger.info(aug_data.tail(10))
+        # mylogger.info("= After Adding APBV ========================================================")
+        # mylogger.info(aug_data.tail(10))
 
         # Target is the difference between the adjusted close and the open price.
         aug_data['Target'] = aug_data['Adj Close'] - aug_data.Open
@@ -1257,14 +1257,14 @@ class PricePredict():
         else:
             force_training = False
 
-        self.logger.debug(f"=== Started: Training and Predicting for [{self.ticker}] using cached data...")
+        self.logger.debug(f"=== Started: Training and Predicting for [{self.ticker}:{self.period}] using cached data...")
         if self.model is None or force_training is True:
             tc = self.cached_train_data
             if tc is None:
                 self.logger.error(
-                    f"Error: No training data cached for {self.ticker}. Cached training data was expected.")
+                    f"Error: No training data cached for [{self.ticker}:{self.period}]. Cached training data was expected.")
                 raise ValueError(
-                    f"Error: No training data cached for {self.ticker}. Cached training data was expected.")
+                    f"Error: No training data cached for [{self.ticker}:{self.period}]. Cached training data was expected.")
             self.ticker = tc.symbol
             self.dateStart_train = tc.dateStart
             self.dateEnd_train = tc.dateEnd
@@ -1283,7 +1283,7 @@ class PricePredict():
                 self.date_data = pd.to_datetime(str_datesdata, format='%Y-%m-%d %H:%M:%S')
             self.X = np.array(tc.X)
             self.y = np.array(tc.y)
-            self.logger.info(f"Training [{self.ticker}] using cached data...")
+            self.logger.info(f"Training [{self.ticker}:{self.period}] using cached data...")
             # Train a new model using the cached training data.
             model, y_pred, mse = self.train_model(self.X, self.y)
             if model is None:
@@ -1292,7 +1292,7 @@ class PricePredict():
             else:
                 # Save the model
                 self.model = model
-                self.logger.info(f"Using existing model for [{self.ticker}], file-path {self.model_path}...")
+                self.logger.info(f"Using existing model for [{self.ticker}:{self.period}], file-path {self.model_path}...")
                 self.save_model(ticker=self.ticker,
                                 date_start=self.dateStart_train,
                                 date_end=self.dateEnd_train)
@@ -1305,7 +1305,7 @@ class PricePredict():
         pc = self.cached_pred_data
         if pc is None:
             self.logger.error(
-                f"Exception Error: No prediction data cached for {self.ticker}. Cached prediction data was expected.")
+                f"Exception Error: No prediction data cached for [{self.ticker}:{self.period}]. Cached prediction data was expected.")
             return
         try:
             self.ticker = pc.symbol
@@ -1325,7 +1325,7 @@ class PricePredict():
             self.X = np.array(pc.X)
             self.y = np.array(pc.y)
         except Exception as e:
-            self.logger.error(f"Exception Error: Could not load prediction data: {e}")
+            self.logger.error(f"Exception Error: Could not load prediction data for [{self.ticker}:{self.period}]: {e}")
             return
 
         # Make Predictions on all the data
@@ -1346,17 +1346,17 @@ class PricePredict():
             - Perform Seasonality Decomposition.
             - Save the Seasonality Decomposition to a file or database.
             """
-            self.logger.info(f"Performing price prediction for [{self.ticker}] using cached data...")
+            self.logger.info(f"Performing price prediction for [{self.ticker}:{self.period}] using cached data...")
             try:
                 self.gen_prediction_chart(last_candles=75, save_plot=save_plot, show_plot=show_plot)
             except Exception as e:
-                self.logger.error(f"Exception Error: Could not generate prediction chart: {e}")
+                self.logger.error(f"Exception Error: Could not generate prediction chart for [{self.ticker}:{self.period}]: {e}")
 
             self.save_prediction_data()
 
         # Save current datetime of the last analysis.
         self.last_analysis = datetime.now()
-        self.logger.debug(f"=== Completed: Training and Predicting for [{self.ticker}] using cached data...Done.")
+        self.logger.debug(f"=== Completed: Training and Predicting for [{self.ticker}:{self.period}] using cached data...Done.")
 
     def prep_model_inputs(self, data_set_scaled, feature_cnt, backcandles=15):
         """
@@ -1372,9 +1372,9 @@ class PricePredict():
         """
 
         X = []
-        # logger.info(data_set_scaled[0].size)
+        # mylogger.info(data_set_scaled[0].size)
         # data_set_scaled=data_set.values
-        # logger.info(data_set_scaled.shape[0])
+        # mylogger.info(data_set_scaled.shape[0])
 
         # Create a 3D array of the data. X[features][periods][candles]
         # Where candles is the number of candles that rolls by 1 period for each period.
@@ -1383,11 +1383,11 @@ class PricePredict():
             for i in range(backcandles, data_set_scaled.shape[0]):  # backcandles+2
                 X[j].append(data_set_scaled[i - backcandles:i, j])
 
-        # logger.info("X.shape:", np.array(X).shape)
+        # mylogger.info("X.shape:", np.array(X).shape)
         X = np.array(X)
         # Move axis from 0 to position 2
         X = np.moveaxis(X, [0], [2])
-        # logger.info("X.shape:", X.shape)
+        # mylogger.info("X.shape:", X.shape)
 
         # The last 4 columns are the Targets.
         # The ML model will learn to predict the 4 Target columns.
@@ -1395,10 +1395,10 @@ class PricePredict():
         y = np.reshape(yi, (len(yi), self.targets))
 
         self.logger.info(f"data_set_scaled.shape: {data_set_scaled.shape}  X.shape: {X.shape}  y.shape: {y.shape}")
-        # logger.info(X)
-        # logger.info("=========================================================")
-        # logger.info(y.shape)
-        # logger.info(y)
+        # mylogger.info(X)
+        # mylogger.info("=========================================================")
+        # mylogger.info(y.shape)
+        # mylogger.info(y)
 
         self.X = X
         self.y = y
@@ -1451,7 +1451,7 @@ class PricePredict():
         :return:
         """
 
-        self.logger.info(f"=== Training Model [{self.ticker}] [{self.period}]...")
+        self.logger.info(f"=== Training Model [{self.ticker}:{self.period}]...")
         # Handle the optional parameters
         if split_pcnt is None:
             split_pcnt = self.split_pcnt
@@ -1468,7 +1468,7 @@ class PricePredict():
         self.fetch_opt_hyperparameters(self.ticker)
 
         # Split the scaled data into training and testing
-        # logger.info("lenX:",len(X), "splitLimit:",splitlimit)
+        # mylogger.info("lenX:",len(X), "splitLimit:",splitlimit)
         X_train, X_test = X[:splitlimit], X[splitlimit:]  # Training data, Test Data
         y_train, y_test = y[:splitlimit], y[splitlimit:]  # Training data, Test Data
 
@@ -1502,15 +1502,19 @@ class PricePredict():
             self.logger.debug("Using existing self.model...")
             model = self.model
 
-        # Define the CSV logger
+        # Define the CSV mylogger
         csv_logger = CSVLogger('PricePred_keras_training_log.csv')
 
-        # Train the model
-        model.fit(x=X_train, y=y_train,
-                  batch_size=batch_size, epochs=epochs,
-                  shuffle=shuffle, validation_split=validation_split,
-                  callbacks=[csv_logger],
-                  verbose=self.keras_verbosity)
+        try:
+            # Train the model
+            model.fit(x=X_train, y=y_train,
+                      batch_size=batch_size, epochs=epochs,
+                      shuffle=shuffle, validation_split=validation_split,
+                      callbacks=[csv_logger],
+                      verbose=self.keras_verbosity)
+        except Exception as e:
+            self.logger.error(f"Error: Training model [{self.ticker}:{self.period}].\n{e}")
+            return None, None, None
 
         if len(X_test) > 0:
             y_pred = model.predict(X_test, verbose=self.keras_verbosity)
@@ -1546,7 +1550,7 @@ class PricePredict():
         self.dateEnd_pred = self.date_data.iloc[-1].strftime("%Y-%m-%d")
         self.model = model
 
-        self.logger.info(f"=== Model Training Completed [{self.ticker}] [{self.period}]...")
+        self.logger.info(f"=== Model Training Completed [{self.ticker}:{self.period}]...")
 
         return model, y_pred, mse
 
@@ -1564,7 +1568,7 @@ class PricePredict():
         :return:
         """
 
-        self.logger.info(f"=== Training Model [{self.ticker}] [{self.period}]...")
+        self.logger.info(f"=== Training Model [{self.ticker}:{self.period}]...")
         # Handle the optional parameters
         if split_pcnt is None:
             split_pcnt = self.split_pcnt
@@ -1593,7 +1597,7 @@ class PricePredict():
         model.compile(optimizer=adam, loss='mse')
 
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=splitlimit, random_state=42)
-        # Callback: Define the CSV logger
+        # Callback: Define the CSV mylogger
         csv_logger = CSVLogger('PricePred_keras_training_log.csv')
         # Callback: Early Stopping
         early_stopping = EarlyStopping(monitor='val_loss', patience=5, min_delta=0.001)
@@ -1655,8 +1659,8 @@ class PricePredict():
         self.lstm_units = optimizer.max['params']['lstm_units']
         self.adam_learning_rate = optimizer.max['params']['adam_learning_rate']
 
-        self.logger.info(f"Ticker: {self.ticker} Bayesian Optimization: {optimizer.max}")
-        print(f"Bayesian Optimization: {{ Ticker: {self.ticker}: {optimizer.max} }}")
+        self.logger.info(f"Ticker: [{self.ticker}:{self.period}] Bayesian Optimization: {optimizer.max}")
+        print(f"Bayesian Optimization: {{ Ticker: [{self.ticker}:{self.period}]: {optimizer.max} }}")
 
         # Make this PP objects models the best model found by the optimizer.
         self.model = self.bayes_best_model
@@ -1668,7 +1672,7 @@ class PricePredict():
         if opt_csv is not None:
             # Append the results to a CSV file.
             with open(opt_csv, 'a') as f:
-                f.write(f"{{ Ticker: {self.ticker}: {optimizer.max} }}\n")
+                f.write(f"{{ Ticker: [{self.ticker}::{self.period}]: {optimizer.max} }}\n")
 
         return optimizer
 
@@ -1733,7 +1737,7 @@ class PricePredict():
         Predict the next price.
         If  X_data is None, then we will fetch the require data from Yahoo Finance and pre-process it.
         """
-        self.logger.info(f"=== Predicting Price for [{self.ticker}] [{self.period}]...")
+        self.logger.info(f"=== Predicting Price for [{self.ticker}:{self.period}]...")
 
         if X_data is None:
             data, features = self.fetch_data_yahoo(self.ticker, self.dateStart_pred, self.dateEnd_pred)
@@ -1771,7 +1775,7 @@ class PricePredict():
             self.pred_high = y_pred_rs[:, -2]
             self.pred_low = y_pred_rs[:, -1]
 
-            self.logger.debug(f"=== Price Prediction Completed [{self.ticker}] [{self.period}]...")
+            self.logger.debug(f"=== Price Prediction Completed [{self.ticker}:{self.period}]...")
 
         return y_pred
 
@@ -2152,7 +2156,7 @@ class PricePredict():
         splitlimit = int(len(X) * split_pcnt)
         self.split_limit = splitlimit
 
-        # logger.info("lenX:",len(X), "splitLimit:",splitlimit)
+        # mylogger.info("lenX:",len(X), "splitLimit:",splitlimit)
         X_train, X_test = X[:splitlimit], X[splitlimit:]  # Training data, Test Data
         y_train, y_test = y[:splitlimit], y[splitlimit:]  # Training data, Test Data
 
@@ -2438,7 +2442,7 @@ class PricePredict():
 
         # Convert back to dollar $values
         elements = len(self.adj_pred) - 1
-        # logger.info(f"elements:{elements}")
+        # mylogger.info(f"elements:{elements}")
         tot_deltas = 0
         tot_tradrng = 0
         for i in range(-1, -elements, -1):
@@ -2505,7 +2509,7 @@ class PricePredict():
                                       'pct_uncorr': round(pct_prd_uncorr, 4)}
 
         elements = len(self.adj_pred_close)
-        # logger.info(f"elements:{elements}")
+        # mylogger.info(f"elements:{elements}")
         tot_deltas = 0
         tot_tradrng = 0
         for i in range(-1, -elements, -1):
@@ -2556,7 +2560,7 @@ class PricePredict():
                                range(len(self_data))]
             except Exception as e:
                 self.logger.error(f"Exception: {e}")
-                self.logger.error(f"Failed to collect trend data for self:{self.ticker}, for seasonality corr.")
+                self.logger.error(f"Failed to collect trend data for self:[{self.ticker}:{self.period}], for seasonality corr.")
             # Make sure that the lengths of self_trends and sd_trends are the same
             min_len = min(len(self_trends), len(sd_trends))
             self_trends = self_trends[-min_len:]
@@ -2685,7 +2689,7 @@ class PricePredict():
             self.logger.error(e_txt)
             raise ValueError(e_txt)
         if ppo.period != self.period:
-            e_txt = f"PPOs [{self.ticker}/{self.period}] [{ppo.ticker}/{ppo.period}] must have the same period."
+            e_txt = f"PPOs [{self.ticker}:{self.period}] [{ppo.ticker}:{ppo.period}] must have the same period."
             self.logger.error(e_txt)
             raise ValueError(e_txt)
 
@@ -2756,22 +2760,22 @@ class PricePredict():
 
         # Once again, make sure that we have enough data points
         if min_data_points is not None and (self_data) < min_data_points:
-            e_txt = f"self[{self.ticker}] has less than {min_data_points} data points [{len(self_data)}]."
+            e_txt = f"self[{self.ticker}:{self.period}] has less than {min_data_points} data points [{len(self_data)}]."
             raise ValueError(e_txt)
         if min_data_points is not None and len(ppo_data) < min_data_points:
-            e_txt = f"ppo[{ppo.ticker}] has less than {min_data_points} data points [{len(ppo_data)}]."
+            e_txt = f"ppo[{ppo.ticker}:{ppo.period}] has less than {min_data_points} data points [{len(ppo_data)}]."
             raise ValueError(e_txt)
         # Check that both data sets have the same length
         if len(self_data) != len(ppo_data):
-            e_txt = f"Data lengths do not match: self[{len(self_data)}] != ppo[{len(ppo_data)}]"
+            e_txt = f"Data lengths do not match [{self.ticker}:{self.period}] [{ppo.ticker}:{ppo.period}]: self[{len(self_data)}] != ppo[{len(ppo_data)}]"
             raise ValueError(e_txt)
         # Check that both datasets begin on the same day
         if self_data.index[0] != ppo_data.index[0]:
-            e_txt = f"Data start dates do not match: self[{self_data.index[0]}] != ppo[{ppo_data.index[0]}]"
+            e_txt = f"Data start dates do not match [{self.ticker}:{self.period}] [{ppo.ticker}:{ppo.period}]: self[{self_data.index[0]}] != ppo[{ppo_data.index[0]}]"
             raise ValueError(e_txt)
         # Check that both datasets end on the same day
         if self_data.index[-1] != ppo_data.index[-1]:
-            e_txt = f"Data end dates do not match: self[{self_data.index[-1]}] != ppo[{ppo_data.index[-1]}]"
+            e_txt = f"Data end dates do not match [{self.ticker}:{self.period}] [{ppo.ticker}:{ppo.period}]: self[{self_data.index[-1]}] != ppo[{ppo_data.index[-1]}]"
             raise ValueError(e_txt)
 
         # Save the start and end dates and period length of the corr
@@ -2862,8 +2866,8 @@ class PricePredict():
         uncorrelated_days = corr_list.count(0)
         pct_corr = correlated_days / total_days
         pct_uncorr = uncorrelated_days / total_days
-        # self.logger.info(f"Days: {total_days} Correlated Days: {correlated_days}  Uncorrelated Days: {uncorrelated_days}")
-        # self.logger.info(f"Correlated Days: {pct_corr}%  Uncorrelated Days: {pct_uncorr}%")
+        # self.mylogger.info(f"Days: {total_days} Correlated Days: {correlated_days}  Uncorrelated Days: {uncorrelated_days}")
+        # self.mylogger.info(f"Correlated Days: {pct_corr}%  Uncorrelated Days: {pct_uncorr}%")
         coint_stationary = False
         if is_cointegrated and is_stationary:
             coint_stationary = True
@@ -2892,7 +2896,7 @@ class PricePredict():
         if self.ticker[0] == '^':
             # Indexes can't support sentiment analysis.
             self.sentiment_json = {}
-            self.sentiment_text = f'Indexes [{self.ticker}] do not support sentiment analysis.'
+            self.sentiment_text = f'Indexes [{self.ticker}:{self.period}] do not support sentiment analysis.'
             return
 
         stock = self.yf.Ticker(self.ticker)
@@ -3002,7 +3006,7 @@ class PricePredict():
         try:
             content = chat_completion.choices[0].message.content
         except Exception as e:
-            self.logger.error(f"Error: Could call on Groq for sentiment on {self.ticker}.\n{e}")
+            self.logger.error(f"Error: Could call on Groq for sentiment on [{self.ticker}:{self.period}].\n{e}")
             return
 
         # Extract the JSON response from the content using a regular expression
@@ -3020,7 +3024,7 @@ class PricePredict():
                 self.sentiment_json = json.loads(jsn_str.strip())
             except Exception as e:
                 self.sentiment_json = {}
-                self.logger.warn(f"Failed to parse JSON response from Groq for sentiment on {self.ticker}.\n{e}")
+                self.logger.warn(f"Failed to parse JSON response from Groq for sentiment on [{self.ticker}:{self.period}].\n{e}")
                 self.sentiment_text = content.strip()
         else:
             self.sentiment_json = {}
@@ -3089,7 +3093,7 @@ class PricePredict():
             seasonal_dec = sm.tsa.seasonal_decompose(data[close_col], model='additive', period=sd_period_len)
         except Exception as e:
             self.logger.error(
-                f"Error: Could not perform seasonal decomposition for [{self.ticker}] [{self.period}]\n{e}")
+                f"Error: Could not perform seasonal decomposition for [{self.ticker}:{self.period}]\n{e}")
             return None
 
         # Save the seasonal decomposition data
@@ -3130,3 +3134,17 @@ class PricePredict():
     def serialize_me(self):
         # Compress the object
         return PricePredict.serialize(self)
+
+    def store_me(self) -> str:
+        # Store this object into a compressed dill object *.dilz
+        filepath = self.ppo_dir + f"{self.ticker}_{self.period}_{self.date_end}.dilz"
+        with open(filepath, 'wb') as f:
+            f.write(self.serialize_me())
+        return filepath
+
+    @staticmethod
+    def restore(filepath, ignore: bool = None):
+        # Restore this object from a compressed dill object *.dilz
+        with open(filepath, 'rb') as f:
+            obj = f.read()
+        return PricePredict.unserialize(obj, ignore=ignore)

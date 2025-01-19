@@ -47,10 +47,15 @@ from streamlit_js_eval import streamlit_js_eval
 os.chdir('/home/dsidlo/workspace/pricepredict')
 
 logging.basicConfig()
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-# Log to a file...
+# "logger" is used by StreamLit, so we create our own logger, "mylogger"...
+mylogger = logging.getLogger(__name__)
+mylogger.setLevel(logging.DEBUG)
+
+# Log Errors to a file for later review...
 logging.basicConfig(filename='dgs_pred_ui.log', level=logging.DEBUG)
+handler = logging.FileHandler('dgs_pred_ui_errors.log')
+handler.setLevel(logging.ERROR)
+mylogger.addHandler(handler)
 
 # Enable/Disable PricePredict Object validation
 global ValidatePPOs
@@ -119,7 +124,7 @@ import_cols_full = 12
 @profile
 def  main(message):
 
-    logger.info(f"*** {message} ***")
+    mylogger.info(f"*** {message} ***")
 
     # Clear the session state
     with st.empty():
@@ -128,19 +133,19 @@ def  main(message):
     if ss_AllDfSym not in st.session_state.keys():
         # This is only needed for bootstrapping the development of this app.
         # When the app is fully developed, we load the symbols from a file or database.
-        logger.info("Initializing df_symbols")
+        mylogger.info("Initializing df_symbols")
         if os.path.isfile(guiAllSymbolsCsv):
             # --------------------------------------------------------
             # Startup Initialization: Load the symbols from the file
             # --------------------------------------------------------
             with st.spinner("# Loading Symbols and PricePredict Objects..."):
                 # Load the symbols from the file
-                logger.debug(f"Loading all_df_symbols from {guiAllSymbolsCsv} from file {guiAllSymbolsCsv}")
+                mylogger.debug(f"Loading all_df_symbols from {guiAllSymbolsCsv} from file {guiAllSymbolsCsv}")
                 st.session_state[ss_AllDfSym] = pd.read_csv(guiAllSymbolsCsv, header='infer')
                 # Clear the Group field if it contains 'Imported' or 'Added'
                 st.session_state[ss_AllDfSym]['Groups'] = st.session_state[ss_AllDfSym]['Groups'].replace(['Imported', 'Added'], '')
                 # Load pp daily objects
-                logger.debug(f"Loading sym_dpps/w from {dill_sym_dpps_d} and {dillbk_sym_dpps_w}")
+                mylogger.debug(f"Loading sym_dpps/w from {dill_sym_dpps_d} and {dillbk_sym_dpps_w}")
                 st.session_state[ss_SymDpps_d], st.session_state[ss_SymDpps_w] = load_pp_objects(st)
 
         if ss_DfSym not in st.session_state:
@@ -295,7 +300,7 @@ def  main(message):
                                options=st.session_state[ss_GroupsList], key=sbRremoveGroup)
         # Remove Groups ==========================================
         if hasattr(st.session_state, bRremoveGroup) and st.session_state.bRremoveGroup:
-            logger.debug(f"Remove Group: {st.session_state.sbRremoveGroup}")
+            mylogger.debug(f"Remove Group: {st.session_state.sbRremoveGroup}")
             if st.session_state.sbRremoveGroup in st.session_state[ss_GroupsList]:
                 st.session_state[ss_GroupsList].remove(st.session_state.sbRremoveGroup)
                 st.session_state[ss_GroupsList] = list(set(st.session_state[ss_GroupsList]))
@@ -338,12 +343,12 @@ def  main(message):
         # Single-Row / Mylti-Row Toggle :  =================
         if ((st.session_state.bRemove_sym or rm_chosen_syms)               # Remove Chosen Symbols
             or (st.session_state.sbToggleGrp is not None and st.session_state.sbToggleGrp.strip() != '')):   # Mark/Clear Favorites
-            logger.info("2>>> Multi-Row on")
+            mylogger.info("2>>> Multi-Row on")
             # if st.session_state.bRemove_sym or rm_chosen_syms:   # Remove Chosen Symbols
             #     st.session_state.sbToggleGrp = True
             df_sel_mode = ["multi-row"]
         else:
-            logger.info("2>>> Multi-Row off")
+            mylogger.info("2>>> Multi-Row off")
             df_sel_mode = ["single-row"]
         # =============================================================
 
@@ -355,7 +360,7 @@ def  main(message):
         img_sym = None
         if st.session_state.bRemove_sym or rm_chosen_syms:
             # Remove the selected symbol from the DataFrame
-            logger.info("*** Remove Selected Symbol ***")
+            mylogger.info("*** Remove Selected Symbol ***")
             st.session_state[ss_fRmChosenSyms] = True
             sym_col.append(st.button("Remove Chosen Symbols", key="remove_chosen_syms"))
             sym_col.append(st.button("Cancel Remove Symbols Operation", key="cancel_rm_syms"))
@@ -363,7 +368,7 @@ def  main(message):
 
         # Action Buttons : Mark/Clear Favorites =======================
         elif st.session_state.sbToggleGrp is not None and st.session_state.sbToggleGrp != '':
-            logger.info("*** Toggle Groups ***")
+            mylogger.info("*** Toggle Groups ***")
             sym_col.append(st.button("Cancel Toggle Group Operation", key=ss_bCancelTglFaves))
         # =============================================================
 
@@ -371,8 +376,8 @@ def  main(message):
         elif hasattr(df_sym.selection, 'rows') and len(df_sym.selection.rows) > 0:
             # We have a selected symbol so display the symbol's chart
             df_symbols = st.session_state[ss_DfSym]
-            logger.info(df_sym.selection.rows[0])
-            logger.info(df_symbols.Symbol[df_sym.selection.rows[0]])
+            mylogger.info(df_sym.selection.rows[0])
+            mylogger.info(df_symbols.Symbol[df_sym.selection.rows[0]])
             img_sym = df_symbols.Symbol[df_sym.selection.rows[0]]
         # =============================================================
 
@@ -390,7 +395,7 @@ def  main(message):
         # Remove Chosen Symbols =======================================
         if hasattr(st.session_state, ss_bRemoveChosenSyms) and st.session_state.remove_chosen_syms:
             st.session_state[ss_fRmChosenSyms] = False
-            logger.info('*** Removing Chosen Symbols ***')
+            mylogger.info('*** Removing Chosen Symbols ***')
             # This operation removes the selected symbols from the visual DataFrame
             dfSave_syms = False
             for i in df_sym.selection.rows:
@@ -412,13 +417,13 @@ def  main(message):
             all_df_symbols = st.session_state[ss_AllDfSym]
             df_symbols = st.session_state[ss_DfSym]
             if dfSave_syms:
-                logger.debug(f"1> Saving all_df_symbols to {guiAllSymbolsCsv}")
+                mylogger.debug(f"1> Saving all_df_symbols to {guiAllSymbolsCsv}")
                 merge_and_save(all_df_symbols, df_symbols)
             # st.rerun()
             streamlit_js_eval(js_expressions="parent.window.location.reload()")
         if hasattr(st.session_state, ss_bCancelRmSyms) and st.session_state.cancel_rm_syms:
             st.session_state[ss_fRmChosenSyms] = False  # Turns off the Action Buttons
-            logger.info('*** Canceled: Remove Chosen Symbols ***')
+            mylogger.info('*** Canceled: Remove Chosen Symbols ***')
             st.rerun()
         # =====================================================
 
@@ -429,31 +434,31 @@ def  main(message):
             fSaveDfSyms = False
             # This operation toggles the "f" flag in the Type field of the selected symbols
             for row in df_sym.selection.rows:
-                logger.info(f"Before Toggle: Sym:[{st.session_state[ss_DfSym].Symbol[row]}]"
-                            + " to [{st.session_state[ss_DfSym].loc[row, group_fld]}]")
+                mylogger.info(f"Before Toggle: Sym:[{st.session_state[ss_DfSym].Symbol[row]}]"
+                              + " to [{st.session_state[ss_DfSym].loc[row, group_fld]}]")
                 if st.session_state[ss_DfSym].loc[row, group_fld] == st.session_state.sbToggleGrp:
                     st.session_state[ss_DfSym].loc[row, group_fld] = ''
-                    logger.debug(f"Toggled: Sym:[{st.session_state[ss_DfSym].loc[row, sym_fild]}]"
-                                + " to [{st.session_state[ss_DfSym].loc[row, group_fld]}]")
+                    mylogger.debug(f"Toggled: Sym:[{st.session_state[ss_DfSym].loc[row, sym_fild]}]"
+                                   + " to [{st.session_state[ss_DfSym].loc[row, group_fld]}]")
                     fSaveDfSyms = True
                 else:
                     st.session_state[ss_DfSym].loc[row, group_fld] = st.session_state.sbToggleGrp
-                    logger.debug (f"Toggled: Sym:[{st.session_state[ss_DfSym].loc[row, sym_fild]}]"
-                                + " to [{st.session_state[ss_DfSym].loc[row, group_fld]}]")
+                    mylogger.debug (f"Toggled: Sym:[{st.session_state[ss_DfSym].loc[row, sym_fild]}]"
+                                    + " to [{st.session_state[ss_DfSym].loc[row, group_fld]}]")
                     fSaveDfSyms = True
 
             # Save out the updated DataFrames and PricePredict objects
             if fSaveDfSyms:
-                logger.debug(f"2> Saving all_df_symbols to {guiAllSymbolsCsv}")
+                mylogger.debug(f"2> Saving all_df_symbols to {guiAllSymbolsCsv}")
                 all_df_symbols = st.session_state[ss_AllDfSym]
                 df_symbols = st.session_state[ss_DfSym]
                 merge_and_save(all_df_symbols, df_symbols)
 
-            logger.info('*** Toggle Favorites ***')
+            mylogger.info('*** Toggle Favorites ***')
             st.rerun()  # Refresh the page
 
         if hasattr(st.session_state, ss_bCancelTglFaves) and st.session_state.ss_bCancelTglFaves:
-                logger.info('*** Canceled: Remove Chosen Symbols ***')
+                mylogger.info('*** Canceled: Remove Chosen Symbols ***')
                 st.rerun()  # Refresh the page
         # =====================================================
 
@@ -485,10 +490,10 @@ def merge_and_save(all_df_symbols, df_symbols):
     # Save out the updated DataFrames and PricePredict objects
     if len(all_df_symbols.columns) == import_cols_full:
         # Sort all_df_symbols by Symbol
-        logger.debug(f"3> Saving all_df_symbols to {guiAllSymbolsCsv}")
+        mylogger.debug(f"3> Saving all_df_symbols to {guiAllSymbolsCsv}")
         all_df_symbols.to_csv(guiAllSymbolsCsv, index=False)
     else:
-        logger.error(
+        mylogger.error(
             f"Error all_df_symbols has too many columns [{len(all_df_symbols)}]: {all_df_symbols.columns}")
 
     st.session_state[ss_AllDfSym] = all_df_symbols
@@ -510,7 +515,7 @@ def getTickerLongName(chk_ticker):
                 else:
                     long_name = ''
     except Exception as e:
-        logger.error(f"Error in getTickerLongNamer: {e}")
+        mylogger.error(f"Error in getTickerLongNamer: {e}")
         ticker_ = []
     if ticker_ is None:
         ticker = None
@@ -528,12 +533,12 @@ def st_dataframe_widget(exp_sym, ss_DfSym, df_sel_mode, sym_col):
         # This is used when removing symbols and marking/clearing favorites
         on_select = 'rerun'
         df_sel_mode = 'multi-row'
-        logger.info("1>>> Multi-Row on")
+        mylogger.info("1>>> Multi-Row on")
     else:
         # on_select = display_symbol_charts
         on_select = 'rerun'
         df_sel_mode = 'single-row'
-        logger.info("1>>> Multi-Row off")
+        mylogger.info("1>>> Multi-Row off")
 
     print(f' *** df_sel_mode: {df_sel_mode}, on_select: {on_select}')
     print(f' *** ss_fRmChosenSyms [{hasattr(st.session_state, ss_fRmChosenSyms)}]')
@@ -565,8 +570,8 @@ def st_dataframe_widget(exp_sym, ss_DfSym, df_sel_mode, sym_col):
     if hasattr(df_sym.selection, 'rows') and len(df_sym.selection.rows) > 0:
         # We have a selected symbol so display the symbol's chart
         st.session_state[ss_DfSym] = df_symbols.copy(deep=True)
-        logger.info(df_sym.selection.rows[0])
-        logger.info(df_symbols.Symbol[df_sym.selection.rows[0]])
+        mylogger.info(df_sym.selection.rows[0])
+        mylogger.info(df_symbols.Symbol[df_sym.selection.rows[0]])
         img_sym = df_symbols.Symbol[df_sym.selection.rows[0]]
     # =============================================================
 
@@ -582,7 +587,7 @@ def filter_symbols():
         # Get the index to the existing symbol
         idx = all_df_symbols.index[all_df_symbols.Symbol == row.Symbol].tolist()
         if len(idx) > 1:
-            logger.error(f"Symbol {row.Symbol} is duplicated in the DataFrame")
+            mylogger.error(f"Symbol {row.Symbol} is duplicated in the DataFrame")
             raise ValueError(f"Symbol {row.Symbol} is duplicated in the DataFrame")
         elif len(idx) == 0:
             # Add the symbol to the DataFrame
@@ -617,10 +622,10 @@ def filter_symbols():
     all_df_symbols['Groups'] = all_df_symbols['Groups'].fillna('')
     # Save all_df_symbols to a file
     if len(all_df_symbols.columns) == import_cols_full:
-        logger.debug(f"4> Saving all_df_symbols to {guiAllSymbolsCsv}")
+        mylogger.debug(f"4> Saving all_df_symbols to {guiAllSymbolsCsv}")
         all_df_symbols.to_csv(guiAllSymbolsCsv, index=False)
     else:
-        logger.error(f"Error all_df_symbols has too many columns [{len(all_df_symbols)}]: {all_df_symbols.columns}")
+        mylogger.error(f"Error all_df_symbols has too many columns [{len(all_df_symbols)}]: {all_df_symbols.columns}")
 
 
 @st.dialog("Remove Chosen Symbols")
@@ -637,7 +642,7 @@ def dlg_rm_imp_syms():
 
 
 def remove_imported_symbols():
-    logger.info('*** Removing Imported Symbols ***')
+    mylogger.info('*** Removing Imported Symbols ***')
     # Get list of rows where Type is "Imported"
     imp_rows = st.session_state[ss_DfSym].index[st.session_state[ss_DfSym].Groups == 'Imported'].tolist()
     # Remove the imported symbols from the DataFrame
@@ -697,7 +702,7 @@ def import_symbols(st, exp_sym):
     for i in range(df_imported_syms.shape[0]):
         row = df_imported_syms.iloc[i]
         if len(row) != import_cols_simple and len(row) != import_cols_full:
-            logger.error(f"Skipping invalid row: {row}. Must have at least (2 or 10) columns.")
+            mylogger.error(f"Skipping invalid row: {row}. Must have at least (2 or 10) columns.")
             continue
         # Add the symbol to the DataFrame
         if row['Symbol'] in ss_df.Symbol.values:
@@ -731,7 +736,7 @@ def add_new_symbols(st, exp_sym, syms):
     invalid_symbols = []
     for sym in syms:
         # Verify with yahoo finance that the symbol is valid, and get the long name
-        logger.info(f"1. New Symbols to be added: {st.session_state.new_sym}")
+        mylogger.info(f"1. New Symbols to be added: {st.session_state.new_sym}")
         if sym == '':
             continue
         if sym not in st.session_state[ss_DfSym].Symbol.values:
@@ -887,7 +892,7 @@ def display_symbol_charts(interactive_charts=True):
                         file_path, fig = pp_w.gen_prediction_chart(save_plot=False, show_plot=True)
                         fig.show()
                 except Exception as e:
-                    logger.error(f"Error displaying chart [{w_img_file}]:\n{e}")
+                    mylogger.error(f"Error displaying chart [{w_img_file}]:\n{e}")
                 # Create expander for prediction analysis of weekly chart
                 if img_sym in st.session_state[ss_SymDpps_w]:
                     pp = st.session_state[ss_SymDpps_w][img_sym]
@@ -945,7 +950,7 @@ def display_symbol_charts(interactive_charts=True):
                     else:
                         st.image(d_img_file, use_container_width=True)
                 except Exception as e:
-                    logger.error(f"Error displaying chart [{d_img_file}]:\n{e}")
+                    mylogger.error(f"Error displaying chart [{d_img_file}]:\n{e}")
                 # Create expander for prediction analysis of daily chart
                 pp = st.session_state[ss_SymDpps_d][img_sym]
                 expd_WklyPa = st.expander("Daily Chart Prediction Analysis...", expanded=False)
@@ -973,7 +978,7 @@ def display_symbol_charts(interactive_charts=True):
                                     '```json\n' + json.dumps(pp.sentiment_json, indent=3) + '\n```')
 
             if img_sym not in st.session_state[ss_SymDpps_d]:
-                logger.error(f"Symbol [{img_sym}] not found in PricePredict objects")
+                mylogger.error(f"Symbol [{img_sym}] not found in PricePredict objects")
             else:
                 pp = st.session_state[ss_SymDpps_d][img_sym]
                 expdr_corr = st.expander("**Correlations**", expanded=False)
@@ -1061,11 +1066,11 @@ def display_symbol_charts(interactive_charts=True):
             st.session_state['all_syms_md5'] = all_syms_md5
         if all_syms_md5 != st.session_state['all_syms_md5']:
             st.session_state['all_syms_md5'] = all_syms_md5
-            logger.debug(f"5> Saving all_df_symbols to {guiAllSymbolsCsv}")
+            mylogger.debug(f"5> Saving all_df_symbols to {guiAllSymbolsCsv}")
             all_df_symbols.to_csv(guiAllSymbolsCsv, index=False)
-            logger.info("DataFrames and PricePredict objects saved")
+            mylogger.info("DataFrames and PricePredict objects saved")
     else:
-        logger.error(f"Error all_df_symbols has too many columns [{len(all_df_symbols)}]: {all_df_symbols.columns}")
+        mylogger.error(f"Error all_df_symbols has too many columns [{len(all_df_symbols)}]: {all_df_symbols.columns}")
 
 
 def get_sym_image_file(sym, period, path):
@@ -1094,7 +1099,7 @@ def analyze_symbols(st, prog_bar, df_symbols,
                     added_syms=None,
                     force_training=False,
                     force_analysis=False):
-    logger.info("*** Analyzing Symbols: Started ***")
+    mylogger.info("*** Analyzing Symbols: Started ***")
     all_df_symbols = st.session_state[ss_AllDfSym]
     total_syms = all_df_symbols.shape[0]
     i = 0
@@ -1102,7 +1107,7 @@ def analyze_symbols(st, prog_bar, df_symbols,
     # with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
     executor = fp.ThreadPoolExecutor(max_workers=8)
     with fp.TaskManager(executor) as tm:
-        logger.debug(f"=== ThreadPoolExecutor: Analyzing Symbols: Total Symbols: {total_syms}")
+        mylogger.debug(f"=== ThreadPoolExecutor: Analyzing Symbols: Total Symbols: {total_syms}")
         # Loop through the symbols in the DataFrame
         for row in all_df_symbols.itertuples():
 
@@ -1110,7 +1115,7 @@ def analyze_symbols(st, prog_bar, df_symbols,
                 # Skip all symbols not in the imported symbols list
                 continue
             else:
-                logger.info(f"imported_syms/added_sym: processing symbol [{row.Symbol}]")
+                mylogger.info(f"imported_syms/added_sym: processing symbol [{row.Symbol}]")
             # Check if the model has a weekly PricePredict object
             if row.Symbol not in st.session_state[ss_SymDpps_w]:
                 # Create a weekly PricePredict object for the symbol
@@ -1133,10 +1138,10 @@ def analyze_symbols(st, prog_bar, df_symbols,
                 # This will force an update of the ppw object
                 ppw.last_analysis = five_days_ago
 
-            logger.info(f"Weekly - Pull data for model: {row.Symbol}")
+            mylogger.info(f"Weekly - Pull data for model: {row.Symbol}")
             try:
                 task_pull_data(row.Symbol, ppw)
-                logger.info(f"Weekly - Train and Predict: {row.Symbol}")
+                mylogger.info(f"Weekly - Train and Predict: {row.Symbol}")
                 # future = executor.submit(task_train_predict_report, row.Symbol, ppw)
                 # futures.append(future)
                 tm.submit(task_train_predict_report, row.Symbol, ppw,
@@ -1145,7 +1150,7 @@ def analyze_symbols(st, prog_bar, df_symbols,
                           force_analysis=force_analysis)
                 total_syms += 1
             except Exception as e:
-                logger.error(f"Error processing symbol: {row.Symbol}\n{e}")
+                mylogger.error(f"Error processing symbol: {row.Symbol}\n{e}")
 
             # Check if the model has a daily PricePredict object
             if row.Symbol not in st.session_state[ss_SymDpps_d]:
@@ -1167,12 +1172,12 @@ def analyze_symbols(st, prog_bar, df_symbols,
                 ppd.last_analysis = five_days_ago
                 ppd.force_training = True
 
-            logger.info(f"Daily - Pull data for model: {row.Symbol}")
+            mylogger.info(f"Daily - Pull data for model: {row.Symbol}")
             twenty4_hours_ago = datetime.now() - timedelta(hours=24)
             if ppd.last_analysis < twenty4_hours_ago:
                 try:
                     task_pull_data(row.Symbol, ppd)
-                    logger.info(f"Daily - Train and Predict: {row.Symbol}")
+                    mylogger.info(f"Daily - Train and Predict: {row.Symbol}")
                     # future = executor.submit(task_train_predict_report, row.Symbol, ppd)
                     # futures.append(future)
                     tm.submit(task_train_predict_report, row.Symbol, ppd,
@@ -1181,26 +1186,26 @@ def analyze_symbols(st, prog_bar, df_symbols,
                               force_analysis=force_analysis)
                     total_syms += 1
                 except Exception as e:
-                    logger.error(f"Error pull-train-predict on symbol: {row.Symbol}\n{e}")
+                    mylogger.error(f"Error pull-train-predict on symbol: {row.Symbol}\n{e}")
             else:
-                logger.info(f"Daily - Predict Object is already up-to-date: {row.Symbol}")
+                mylogger.info(f"Daily - Predict Object is already up-to-date: {row.Symbol}")
 
             i += 1
             # Update the progress bar
             prog_bar.progress(int(i / total_syms * 100), f"Analyzing: {row.Symbol} ({i}/{total_syms})")
 
-        logger.debug(f"=== Checking on completed futures ...")
+        mylogger.debug(f"=== Checking on completed futures ...")
         # for future in concurrent.futures.as_completed(futures):
         sym_ = ''
         for future in tm.as_completed():
-            logger.debug(f"=== Checking futures ...")
+            mylogger.debug(f"=== Checking futures ...")
 
             i += 1
             # Update the progress bar
             prog_bar.progress(int(i / total_syms * 100), f"Analysis Completed: {sym_} ({i}/{total_syms})")
 
             if isinstance(future, Exception):
-                logger.error(f"Error processing symbol: {future.args[0], future.args[1]} {future.result}")
+                mylogger.error(f"Error processing symbol: {future.args[0], future.args[1]} {future.result}")
                 continue
             else:
                 sym_, pp_ = future.result
@@ -1210,13 +1215,13 @@ def analyze_symbols(st, prog_bar, df_symbols,
                 elif sym_ is not None and pp_.period == PricePredict.PeriodDaily:
                     st.session_state[ss_SymDpps_d][sym_] = pp_
                 else:
-                    logger.error(f"Error PricePredict Object has invalid period value: {pp_.period}")
+                    mylogger.error(f"Error PricePredict Object has invalid period value: {pp_.period}")
 
     if len(syms_analyzed) > 0:
         # Save out the updated DataFrames and PricePredict objects
         store_pp_objects(st, prog_bar, syms_analyzed)
 
-    logger.info("--- Analyzing Symbols: Completed ---")
+    mylogger.info("--- Analyzing Symbols: Completed ---")
 
     sym_correlations('Weekly', st, st.session_state[ss_SymDpps_w], prog_bar)
     sym_correlations('Daily', st, st.session_state[ss_SymDpps_d], prog_bar)
@@ -1227,7 +1232,7 @@ def analyze_symbols(st, prog_bar, df_symbols,
 
     st.session_state[ss_DfSym] = update_viz_data(st, all_df_symbols)
 
-    logger.debug(f"6> Saving all_df_symbols to {guiAllSymbolsCsv}")
+    mylogger.debug(f"6> Saving all_df_symbols to {guiAllSymbolsCsv}")
     all_df_symbols = st.session_state[ss_AllDfSym]
     df_symbols = st.session_state[ss_DfSym]
     with st.spinner("Saving PricePredict Objects..."):
@@ -1235,7 +1240,7 @@ def analyze_symbols(st, prog_bar, df_symbols,
 
     # Save all PricePredict objects as they all have been touched
     store_pp_objects(st, prog_bar)
-    logger.info("--- Analyzing Symbols: Completed ---")
+    mylogger.info("--- Analyzing Symbols: Completed ---")
 
     with st.spinner("Cleaning up..."):
         # Remove old PricePredict objects
@@ -1275,7 +1280,7 @@ def analyze_symbols(st, prog_bar, df_symbols,
 
 def load_pp_objects(st):
 
-    logger.debug("Loading PricePredict objects..,")
+    mylogger.debug("Loading PricePredict objects..,")
 
     sym_dpps_d_ = {}
     sym_dpps_w_ = {}
@@ -1284,13 +1289,13 @@ def load_pp_objects(st):
     ppo_dir = './ppo/'
 
     prog_bar = st.progress(0, "Finding PricePredict objects...")
-    # Find the latest .dill files in the ./ppo directory for any given symbol.
+    # Find the latest .dilz files in the ./ppo directory for any given symbol.
     dill_files = {}
     with os.scandir(ppo_dir) as entries:
         tot_entries = len(list(os.scandir(ppo_dir)))
         i = 0
         for entry in entries:
-            if entry.is_file() and entry.name.endswith('.dill'):
+            if entry.is_file() and entry.name.endswith('.dilz'):
                 sym, period = entry.name.split('_')[:2]
                 sym_period = sym + '_' + period
                 # Find a key in dill_files that starts with sym and place the entry
@@ -1319,14 +1324,14 @@ def load_pp_objects(st):
                         cobj = f.read()
                         sym_dpps_w_[sym] = PricePredict.unserialize(cobj)
                 except Exception as e:
-                    logger.warning(f"Error loading PricePredict object [{sym}]: {e}")
+                    mylogger.warning(f"Error loading PricePredict object [{sym}]: {e}")
             elif period == 'D':
                 try:
                     with open(entry, "rb") as f:
                         cobj = f.read()
                         sym_dpps_d_[sym] = PricePredict.unserialize(cobj)
                 except Exception as e:
-                    logger.warning(f"Error loading PricePredict object [{sym}]: {e}")
+                    mylogger.warning(f"Error loading PricePredict object [{sym}]: {e}")
             i += 1
             prog_bar.progress(int(i / tot_entries) * 100, f"Loading PricePredict objects: {entry.name} ({i}/{tot_entries})")
 
@@ -1343,7 +1348,7 @@ def sync_dpps_objects(st, prog_bar):
 
     global ValidatePPOs
 
-    logger.info("Remove PricePredict objects that are not in the DataFrame")
+    mylogger.info("Remove PricePredict objects that are not in the DataFrame")
     df_symbols = st.session_state[ss_AllDfSym]
     if ss_SymDpps_d not in st.session_state.keys() or ss_SymDpps_w not in st.session_state.keys():
         return
@@ -1368,9 +1373,9 @@ def sync_dpps_objects(st, prog_bar):
                     try:
                         dill.dump(dpp_d, buffer)
                     except Exception as e:
-                        logger.warning(f"WARN: pickling PricePredict dpp_d object [{sym}]: {e}")
+                        mylogger.warning(f"WARN: pickling PricePredict dpp_d object [{sym}]: {e}")
                         bo = dill.detect.badobjects(dpp_d, depth=2)
-                        logger.error(f"Bad objects in [{dpp_d.ticker}]:w: {bo}")
+                        mylogger.error(f"Bad objects in [{dpp_d.ticker}]:w: {bo}")
                         objgraph.show_refs(dpp_d, filename=f'objgraph_{dpp_d.ticker}_dpp_d.png')
                         # Remove the unpicklable object
                         del st.session_state[ss_SymDpps_d][sym]
@@ -1394,9 +1399,9 @@ def sync_dpps_objects(st, prog_bar):
                     try:
                         dill.dump(dpp_w, buffer)
                     except Exception as e:
-                        logger.warning(f"WARN: pickling PricePredict dpp_w object [{sym}]: {e}")
+                        mylogger.warning(f"WARN: pickling PricePredict dpp_w object [{sym}]: {e}")
                         bo = dill.detect.badobjects(dpp_w, depth=2)
-                        logger.error(f"Bad objects in [{dpp_w.ticker}]:w: {bo}")
+                        mylogger.error(f"Bad objects in [{dpp_w.ticker}]:w: {bo}")
                         objgraph.show_refs(dpp_d, filename=f'objgraph_{dpp_d.ticker}_dpp_w.png')
                         # Remove the unpicklable object
                         del st.session_state[ss_SymDpps_w][sym]
@@ -1407,21 +1412,21 @@ def sync_dpps_objects(st, prog_bar):
                     prog_bar.progress(int(i / total_syms * 100), f"Validating Weekly Objects: {sym} ({i}/{total_syms})")
 
         if len(object_removed) > 0:
-            logger.info(f'Deleted {len(object_removed)} Daily PricePredict objects: [{','.join(object_removed)}]')
+            mylogger.info(f'Deleted {len(object_removed)} Daily PricePredict objects: [{','.join(object_removed)}]')
             st.session_state['exp_sym'].warning(f"Removed UnPicklable PricePredict objects: {object_removed}")
 
     # Make sure that we have PricePredict objects for all the symbols in the DataFrame
     for sym in df_symbols.Symbol.values:
         if sym not in st.session_state[ss_SymDpps_d]:
             # Create missing PricePredict objects
-            pp = PricePredict(ticker=sym, period=PricePredict.PeriodDaily, logger=logger,
+            pp = PricePredict(ticker=sym, period=PricePredict.PeriodDaily, logger=mylogger,
                               model_dir=model_dir,
                               chart_dir=chart_dir,
                               preds_dir=preds_dir)
             st.session_state[ss_SymDpps_d][sym] = pp
         if sym not in st.session_state[ss_SymDpps_w]:
             # Create missing PricePredict objects
-            pp = PricePredict(ticker=sym, period=PricePredict.PeriodWeekly, logger=logger,
+            pp = PricePredict(ticker=sym, period=PricePredict.PeriodWeekly, logger=mylogger,
                               model_dir=model_dir,
                               chart_dir=chart_dir,
                               preds_dir=preds_dir)
@@ -1431,7 +1436,7 @@ def sync_dpps_objects(st, prog_bar):
 def _store_pp_objects(st, prog_bar, syms_dict,
                       pb_text: str = "Saving PricePredict objects..."):
 
-    logger.info("PricePredict objects...")
+    mylogger.info("PricePredict objects...")
 
     failed_ppws = []
     i = 0
@@ -1445,16 +1450,16 @@ def _store_pp_objects(st, prog_bar, syms_dict,
                 continue
             last_date = ppo.date_data.iloc[-1].strftime("%Y-%m-%d")
             period = ppo.period
-            obj_file_name = f"{ticker}_{period}_{last_date}.dill"
+            obj_file_name = f"{ticker}_{period}_{last_date}.dilz"
             file_path = ppo_dir + obj_file_name
             try:
                 with open(file_path, "wb") as f:
                     f.write(ppo.serialize_me())
             except Exception as e:
                 bo = dill.detect.badobjects(ppo, depth=2)
-                logger.error(f"Bad objects in [{ppo.ticker}]:w: {bo}")
+                mylogger.error(f"Bad objects in [{ppo.ticker}]:w: {bo}")
                 objgraph.show_refs(sym_dpps_w_, filename=f'objgraph_{ppo.ticker}_dpp_d.png')
-                logger.error(f"Error saving PricePredict object [{sym}:{ppo.period}]: {e}")
+                mylogger.error(f"Error saving PricePredict object [{sym}:{ppo.period}]: {e}")
                 failed_ppws.append(sym)
         i += 1
         # Update the progress bar
@@ -1469,22 +1474,22 @@ def store_pp_objects(st, prog_bar, syms_dict=None):
     sync_dpps_objects(st, prog_bar)
 
     if syms_dict is not None:
-        logger.info("Updated PricePredict objects...")
+        mylogger.info("Updated PricePredict objects...")
         _store_pp_objects(st, prog_bar, syms_dict, pb_text="Saving Updated objects...")
     else:
-        logger.info("Saving PricePredict objects (Weekly Object)...")
+        mylogger.info("Saving PricePredict objects (Weekly Object)...")
         _store_pp_objects(st, prog_bar, st.session_state[ss_SymDpps_w], pb_text="Saving Weekly objects...")
-        logger.info("Saving PricePredict objects (Daily Object)...")
+        mylogger.info("Saving PricePredict objects (Daily Object)...")
         _store_pp_objects(st, prog_bar, st.session_state[ss_SymDpps_d], pb_text="Saving Daily objects...")
 
 def task_pull_data(symbol_, dpp):
     # Get datetime 24 hours ago
     ago24hrs = datetime.now() - timedelta(days=1)
 
-    logger.info(f"Pulling data for {symbol_}...")
+    mylogger.info(f"Pulling data for {symbol_}...")
     if dpp.last_analysis is not None:
         if dpp.last_analysis > ago24hrs and dpp.model is not None:
-            logger.info(f"PricePredict object is already up-to-date: {symbol_}")
+            mylogger.info(f"PricePredict object is already up-to-date: {symbol_}")
             return symbol_, dpp
 
     # Set the end date to today...
@@ -1495,7 +1500,7 @@ def task_pull_data(symbol_, dpp):
     # Pull the data and cache it...
     dpp.cache_training_data(symbol_, start_date, end_date, dpp.period)
     if len(dpp.orig_data) < 150:
-        logger.error(f"Error: Not enough data for [{symbol_}] [{len(dpp.orig_data) }], for training. So, won't train or predict.")
+        mylogger.error(f"Error: Not enough data for [{symbol_}] [{len(dpp.orig_data) }], for training. So, won't train or predict.")
         # TODO: Add a problem property to the PricePredict object that can be displayed for
         #       objects that have issues.
         return symbol_, dpp
@@ -1509,7 +1514,7 @@ def task_pull_data(symbol_, dpp):
                       - timedelta(days=365)).strftime("%Y-%m-%d")
     # Simply pulls and caches the prediction data...
     dpp.cache_prediction_data(symbol_, start_date, end_date, dpp.period)
-    logger.info(f"Completed pulling data for {symbol_}...")
+    mylogger.info(f"Completed pulling data for {symbol_}...")
     return symbol_, dpp
 
 
@@ -1520,7 +1525,7 @@ def task_train_predict_report(symbol_, dpp, added_syms=None,
 
     if dpp.last_analysis is not None:
         if dpp.last_analysis > ago24hrs and force_analysis is False and dpp.model is not None:
-            logger.info(f"PricePredict object is already up-to-date: {symbol_}")
+            mylogger.info(f"PricePredict object is already up-to-date: {symbol_}")
             return symbol_, dpp
     # Process the cached data as needed...
     # - Trains and Saves a new model if needed
@@ -1531,14 +1536,14 @@ def task_train_predict_report(symbol_, dpp, added_syms=None,
     if dpp.ticker in added_syms:
         force_training = True
     if force_training or dpp.last_analysis is None or dpp.model is None:
-        logger.info(f"Training and predicting for {symbol_}...")
+        mylogger.info(f"Training and predicting for {symbol_}...")
         dd = dpp.cached_train_data.dates_data
         dpp.cached_train_predict_report(force_training=True)
-        logger.info(f"Completed training and predicting for {symbol_}...")
+        mylogger.info(f"Completed training and predicting for {symbol_}...")
     else:
-        logger.info(f"Predicting for {symbol_}...")
+        mylogger.info(f"Predicting for {symbol_}...")
         dpp.cached_predict_report()
-        logger.info(f"Completed predicting for {symbol_}...")
+        mylogger.info(f"Completed predicting for {symbol_}...")
 
     return symbol_, dpp
 
@@ -1554,7 +1559,7 @@ def is_iterable(x):
 def create_charts_dict(st):
     # Create a dicts of the chart image files in ./charts
     # The format of the chart file name is <Symbol>_period_<date>.png
-    logger.debug("Creating charts dictionary...")
+    mylogger.debug("Creating charts dictionary...")
     charts_dict = {}
     if os.path.exists('charts'):
         files = os.listdir('charts')
@@ -1586,14 +1591,14 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
             if sym in sym_dpps_d:
                 pp = sym_dpps_d[sym]
             else:
-                pp = PricePredict(ticker=sym, period=PricePredict.PeriodDaily, logger=logger,
+                pp = PricePredict(ticker=sym, period=PricePredict.PeriodDaily, logger=mylogger,
                                   model_dir=model_dir,
                                   chart_dir=chart_dir,
                                   preds_dir=preds_dir)
                 sym_dpps_d[sym] = pp
 
             if pp.pred_strength is None:
-                logger.warning(f"Symbol [{sym}] Period [{pp.period}] has no prediction strength value.")
+                mylogger.warning(f"Symbol [{sym}] Period [{pp.period}] has no prediction strength value.")
 
             if sym not in all_df_symbols.Symbol.values:
                 indx = -1
@@ -1634,14 +1639,14 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
             if sym in sym_dpps_w:
                 pp = sym_dpps_w[sym]
             else:
-                pp = PricePredict(ticker=sym, period=PricePredict.PeriodWeekly, logger=logger,
+                pp = PricePredict(ticker=sym, period=PricePredict.PeriodWeekly, logger=mylogger,
                                   model_dir=model_dir,
                                   chart_dir=chart_dir,
                                   preds_dir=preds_dir)
                 sym_dpps_w[sym] = pp
 
             if pp.pred_strength is None:
-                logger.warning(f"Symbol [{sym}] Period [{pp.period}] has no prediction strength value.")
+                mylogger.warning(f"Symbol [{sym}] Period [{pp.period}] has no prediction strength value.")
 
             if sym not in all_df_symbols.Symbol.values:
                 indx = -1
@@ -1706,7 +1711,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
     against all other PricePredict objects amd update the PricePredict object's
     top10corr, top10xcorr, and top10coint properties.
     """
-    logger.debug(f"Calculating Period [{prd}] Correlations...")
+    mylogger.debug(f"Calculating Period [{prd}] Correlations...")
 
     # Minimum number of data points required for corr calculations
     min_data_points = 200
@@ -1744,7 +1749,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
             len_ = None
             if target_sym.orig_data is not None:
                 len_ = len(target_sym.orig_data)
-            logger.info(f"target_sym[{target_sym.ticker} {target_sym.period}] [{len_}] has less than {min_data_points} data points.")
+            mylogger.info(f"target_sym[{target_sym.ticker} {target_sym.period}] [{len_}] has less than {min_data_points} data points.")
             # Change the last_analysis date to 5 days ago to force an update on the next analysis run.
             five_days_ago = datetime.now() - timedelta(days=5)
             target_sym.last_analysis = five_days_ago
@@ -1772,15 +1777,15 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
                     len_ = None
                     if source_sym.orig_data is not None:
                         len_ = len(source_sym.orig_data)
-                    logger.info(f"1: Symbol source:[{ssym} {source_sym.period}] [{len_}] has less than {min_data_points}"
-                                + " data points. Wont calculate correlations.")
+                    mylogger.info(f"1: Symbol source:[{ssym} {source_sym.period}] [{len_}] has less than {min_data_points}"
+                                  + " data points. Wont calculate correlations.")
                     continue
                 try:
                     # Perform correlation analysis for target_sym vs source_sym for the last 300 days/weeks.
                     corr = target_sym.periodic_correlation(source_sym, period_len=300)
                     sym_corr[(tsym, ssym)] = corr
                 except Exception as e:
-                    logger.error(f"Error calculating corr for [{tsym}:{ssym}] period[D]: {e}")
+                    mylogger.error(f"Error calculating corr for [{tsym}:{ssym}] period[D]: {e}")
                     continue
     corrs = []
     i = 0
@@ -1790,7 +1795,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
         # Update the progress bar
         prog_bar.progress(int(i / item_cnt * 100), f"{prd} Correlations (2): {tsym} ({i}/{item_cnt})")
         if sym_corr[ts] is None:
-            logger.debug(f"Symbol Correlation (sym_corr) for [{ts}] is None")
+            mylogger.debug(f"Symbol Correlation (sym_corr) for [{ts}] is None")
             continue
 
         corrs.append((ts, (round(sym_corr[ts]['avg_corr'], 5),
@@ -1836,7 +1841,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
             len_ = None
             if target_sym.orig_data is not None:
                 len_ = len(target_sym.orig_data)
-            logger.info(
+            mylogger.info(
                 f"2: Symbol target:[{target_sym.ticker} {target_sym.period}] [{len_}] has less than {min_data_points} data points. Wont calculate correlations.")
             continue
 
@@ -1910,7 +1915,7 @@ def ppo_cleanup(period, symbols):
     syms_files = []
     for root, dirs, files in os.walk("./ppo"):
         for file in files:
-            if file.endswith(".dill"):
+            if file.endswith(".dilz"):
                 syms_files.append(file)
     syms_files = sorted(syms_files, reverse=True)
     del_model_cnt = 0
