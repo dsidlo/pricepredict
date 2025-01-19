@@ -38,21 +38,35 @@ To use this class effectively, it is ideal to use a computer with an GPU that is
 
 ### Main UI:
 
+![The Main UI](docs/images/ui-001-main.png)
+
 ### Add/Remove Symbols (Dropdown)
+
+<img src="docs/images/ui-002-add_rm_symbols.png" alt="Add Remove Symbols" width="300">
 
 ### Add/Remove Groups (Dropdown)
 
+<img src="docs/images/ui-003-add_rm_groups.png" alt="Add Remove Groups" width="300">
+
 ### Filter (Dropdown)
+
+<img src="docs/images/ui-005-filters.png" alt="Filters" width="300">
 
 ### Charts Display:
 
+<img src="docs/images/ui-006-ticker_grid.png" alt="Ticker Grid" width="300">
+
 #### Weekly Predictions and Real Prices Chart.
+
+![Weekly Chart](docs/images/ui-007-chart_01_Weekly.png)
 
 #### Weekly Chart Prediction Analysis  (Dropdown)...
 
 #### Weekly Prediction Strength...
 
 #### Daily Predictions and Real Prices Chart.
+
+![Daily Chart](docs/images/ui-007-chart_02_Daily.png)
 
 #### Daily Chart Prediction Analysis  (Dropdown)...
 
