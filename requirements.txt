@@ -76,3 +76,4 @@ traitlets~=5.14.3
 readline~=8.2
 ipykernel~=6.29.5
 objgraph~=3.6.2
+tqdm~=4.66.5
