@@ -153,8 +153,10 @@ class PricePredict():
                  split_pcnt=0.8,  # The value for splitting data into training and testing.
                  batch_size=30,  # The batch size for training the model.
                  epochs=50,  # The number of epochs for training the model.
-                 lstm_units=256,  # The current models units
+                 lstm_units=256,  # The current models units/neurons
                  lstm_dropout=0.2,  # The current models dropout
+                 lstm_hidden_layers=0,  # The current models hidden layers
+                 lstm_hidden_units=128,  # The current models hidden units/neurons
                  adam_learning_rate=0.035,  # The current models learning rate
                  shuffle=True,  # Shuffle the data for training the model.
                  val_split=0.1,  # The validation split used during training.
@@ -194,14 +196,21 @@ class PricePredict():
         self.seasonal_chart_path = ''  # The path to the seasonal decomposition chart
         self.period = period  # The period for the data (D, W)
         self.model = None  # The current loaded model
+        # ---- Bayesian Optimization ----
         self.bayes_best_loss = None  # The best loss from the bayesian optimization
         self.bayes_best_model = None  # The best bayesian optimized model, temp holder.
         self.bayes_opt_hypers = {}  # The optimized hyperparameters
-        self.lstm_units = lstm_units  # The current models units
-        self.lstm_dropout = lstm_dropout  # The current models dropout
-        self.adam_learning_rate = adam_learning_rate  # The current models learning rate
+        # ---- Model Optimized Hyperparameters ----
+        self.hp_lstm_units = lstm_units  # The current models units/neurons
+        self.hp_lstm_dropout = lstm_dropout  # The current models dropout
+        self.hp_epochs = None  # The current models epochs
+        self.hp_batch_size = None  # The current models batch size
+        self.hp_hidden_layers = None  # The hidden layers for the model
+        self.hp_hidden_layer_units = None  # The current models hidden units/neurons
+        # ----
+        self.hp_adam_learning_rate = None  # The current models learning rate
         self.scaler = None  # The current models scaler
-        self.Verbose = verbose  # Print debug information
+        self.verbose = verbose  # Print debug information
         self.ticker = ticker  # The ticker for the data
         self.ticker_data = None  # The data for the ticker (Long Name, last price, etc.)
         self.date_start = ''  # The start date for the data
@@ -216,6 +225,8 @@ class PricePredict():
         self.targets = None  # The number of targets (predictions) in the data
         self.data_scaled = None  # Save the scaled data for later use.
         self.force_training = force_training  # Force training the model
+        self.dateStart_train = None  # The start date for the training period
+        self.dateEnd_train = None  # The end date for the training period
         self.X = None  # 3D array of training data.
         self.y = None  # Target values (Adj Close)
         self.X_train = None  # Training data
@@ -223,18 +234,19 @@ class PricePredict():
         self.y_test = None  # Test data
         self.y_test_closes = None  # Test data closes
         self.y_train = None  # Training data
-        self.y_pred = None  # The prediction
-        self.y_pred_rescaled = None  # The rescaled prediction
+        self.y_pred = None  # The prediction unscaled from model.predict()
         self.mean_squared_error = None  # The mean squared error for the model
         self.target_close = None  # The target close
         self.target_high = None  # The target high
         self.target_low = None  # The target low
-        self.pred = None  # The predictions (4 columns)
-        self.pred_rescaled = None  # The  predictions rescaled (4 columns)
+        self.pred = None  # The rescaled predictions (3 columns)
+        self.dateStart_pred = None  # The start date for the prediction period
+        self.dateEnd_pred = None  # The end date for the prediction period
         self.pred_class = None  # The prediction class
         self.pred_close = None  # The adjusted prediction close
         self.pred_high = None  # The adjusted prediction close
         self.pred_low = None  # The adjusted prediction close
+        self.pred_dates = None  # The Data series that is aligned to pred(s) and adj_pred(s)
         self.adj_pred = None  # The adjusted predictions (3 columns)
         self.adj_pred_class = None  # The adjusted prediction class
         self.adj_pred_close = None  # The adjusted prediction close
@@ -243,16 +255,15 @@ class PricePredict():
         self.dateStart_train = None  # The start date for the training period
         self.analysis = None  # The analysis of the model
         self.analysis_path = None  # The path to the analysis file
-        self.dateEnd_train = None  # The end date for the training period
-        self.dateStart_pred = None  # The start date for the prediction period
-        self.dateEnd_pred = None  # The end date for the prediction period
+        self.trends_close = None  # The trends in the close
+        self.trends_adj_close = None  # The trends in the adjusted predictions
+        self.trends_corr = None  # The correlation of the trends (actual close vs. adj predictions)
         self.back_candles = back_candles  # The number of candles to look back for each period.
-        self.split_pcnt = split_pcnt  # The value for splitting data into training and testing.
+        self.shuffle = shuffle  # Shuffle the data for training the model.
+        self.train_split = val_split  # The validation split used during training.
         self.split_limit = None  # The split limit for training and testing data.
         self.batch_size = batch_size  # The batch size for training the model.
         self.epochs = epochs  # The number of epochs for training the model.
-        self.shuffle = shuffle  # Shuffle the data for training the model.
-        self.val_split = val_split  # The validation split used during training.
         self.seasonal_dec = None  # The seasonal decomposition
         self.keras_log = keras_log  # The keras log file
         self.keras_verbosity = keras_verbosity  # The keras verbosity level
@@ -497,7 +508,7 @@ class PricePredict():
                 raise ValueError(f"period[{period}]: man only be \"{'", "'.join(PricePredict.PeriodValues)}\"")
             self.period = period
 
-        if self.Verbose:
+        if self.verbose:
             self.logger.info(f"Loading Data for: {ticker}  from: {date_start} to {date_end}, Period: {self.period}")
 
         if force_fetch:
@@ -642,7 +653,7 @@ class PricePredict():
 
         # ------ At this point the final data to return is in "interpolated_data" ------
 
-        if self.Verbose:
+        if self.verbose:
             self.logger.info(f"data.len(): {len(orig_data)}  data.shape: {orig_data.shape}")
 
         # Data from clode in this function above...
@@ -790,7 +801,8 @@ class PricePredict():
         #
         # On Balance Volume
         if aug_data['Volume'].iloc[-1] > 0:
-            aug_data = aug_data.join(ta.aobv(aug_data.Close, aug_data.Volume, fast=True, min_lookback=3, max_lookback=9))
+            aug_data = aug_data.join(ta.aobv(close=aug_data.Close, volume=aug_data.Volume,
+                                             fast=3, slow=6, min_lookback=3, max_lookback=9))
             feature_cnt += 7  # ta.aobv adds 7 columns
 
         # mylogger.info("= After Adding APBV ========================================================")
@@ -884,7 +896,7 @@ class PricePredict():
         self.features = feature_cnt
         self.targets = target_cnt
         self.date_data = dates_data
-        self.logger.info(f'*~*~*~> self.data_data: [{type(self.date_data)}]')
+        self.logger.debug(f'*~*~*~> self.data_data: [{type(self.date_data)}]')
 
 
         return aug_data, feature_cnt, target_cnt, self.date_data
@@ -940,17 +952,13 @@ class PricePredict():
         # Inverse transform the data (this restores the original scale)
         pred_restored_scale = self.scaler.inverse_transform(data_set_scaled)
 
+        # Pull the Target Columns (Predictions) from the restored data.
+        pred_restored_scale = pred_restored_scale[:, -self.targets:]
         self.pred = pred_restored_scale
-        self.pred_rescaled = pred_restored_scale
         self.pred_class = pred_restored_scale[:, -4]
         self.pred_close = pred_restored_scale[:, -3]
         self.pred_high = pred_restored_scale[:, -2]
         self.pred_low = pred_restored_scale[:, -1]
-
-        # Pull the Target Columns (Predictions) from the restored data.
-        pred_restored_scale = pred_restored_scale[:, -self.targets:]
-
-        self.pred_rescaled = pred_restored_scale
 
         return pred_restored_scale
 
@@ -1006,7 +1014,7 @@ class PricePredict():
         else:
             self.period = self.PeriodDaily
 
-        if self.Verbose:
+        if self.verbose:
             self.logger.info(f"Model Loaded: {model_path}")
         self.model = model
         return model
@@ -1043,7 +1051,7 @@ class PricePredict():
             self.logger.error(f"Error: load_model returned None: {model_path}")
             raise ValueError(f"Error: load_model returned None: {model_path}")
         self.logger.debug(f"Model Loaded: {model_path}")
-        if self.Verbose:
+        if self.verbose:
             self.logger.info(f"Model Loaded: {model_path}")
 
         self.ticker = ticker
@@ -1333,9 +1341,6 @@ class PricePredict():
         # Perform the prediction
         # This call will also save_plot the prediction data to this object.
         self.predict_price(self.X)
-        # Perform data alignment on the prediction data.
-        # Doing so makes use the the prediction deltas rather than the actual values.
-        self.adjust_prediction()
 
         if no_report is False:
             """
@@ -1394,11 +1399,7 @@ class PricePredict():
         X, yi = np.array(X), np.array(data_set_scaled[backcandles:, -self.targets:])
         y = np.reshape(yi, (len(yi), self.targets))
 
-        self.logger.info(f"data_set_scaled.shape: {data_set_scaled.shape}  X.shape: {X.shape}  y.shape: {y.shape}")
-        # mylogger.info(X)
-        # mylogger.info("=========================================================")
-        # mylogger.info(y.shape)
-        # mylogger.info(y)
+        self.logger.debug(f"data_set_scaled.shape: {data_set_scaled.shape}  X.shape: {X.shape}  y.shape: {y.shape}")
 
         self.X = X
         self.y = y
@@ -1438,61 +1439,140 @@ class PricePredict():
                     self.adam_learning_rate = hyper_params['params']['adam_learning_rate']
                     self.ticker = ticker
 
-    def train_model(self, X, y, split_pcnt=0.8, backcandels=None):
+    def train_model(self, X, y,
+                    train_split: Decimal = 0.8,
+                    backcandles: int = 15,
+                    shuffle: bool = True,
+                    use_bayes_opt: bool = True,
+                    # -- Hyperparameters
+                    lstm_units: int = None,
+                    lstm_dropout: float = None,
+                    adam_learning_rate: float = None,
+                    epochs: int = None,
+                    batch_size: int = None,
+                    hidden_layers: int = None,
+                    hidden_layer_units: [int] = None,
+                    ):
         """
         Train the model.
         Given the training data, split it into training and testing data.
         Train the model and return the model and the prediction.
         Adjust the prediction are not made here.
+
         :param X:
         :param y:
-        :param split_pcnt:
-        :param backcandels:
-        :return:
+        # --- Optional Parameters
+        :param train_split:
+        :param backcandles:
+        # --- Optimize Hyperparameters
+        :param use_bayes_opt:
+        :param bayes_opt:
+        # --- Hyperparameters
+        :param shuffle:
+        :param epochs:
+        :param adam_learning_rate:
+        :param batch_size:
+        :param lstm_units:
+        :param lstm_dropout:
+        :param hidden_layers:
+        :param hidden_layer_units:
+
+        :return model, y_pred, mse:
+
         """
 
-        self.logger.info(f"=== Training Model [{self.ticker}:{self.period}]...")
-        # Handle the optional parameters
-        if split_pcnt is None:
-            split_pcnt = self.split_pcnt
-        splitlimit = int(len(X) * split_pcnt)
+        self.logger.debug(f"=== Training Model [{self.ticker}:{self.period}]...")
 
-        self.split_limit = splitlimit
-        if backcandels is None:
-            backcandels = self.back_candles
+        # Handle the hyperparameters
+        if batch_size is None:
+            if self.hp_batch_size is not None:
+                batch_size = self.hp_batch_size
+            else:
+                batch_size = 32
+        if epochs is None:
+            if self.hp_epochs is not None:
+                epochs = self.hp_epochs
+            else:
+                epochs = 100
+        if lstm_units is None:
+            if self.hp_lstm_units is not None:
+                lstm_units = self.hp_lstm_units
+            else:
+                lstm_units = 200
+        if lstm_dropout is None:
+            if self.hp_lstm_dropout is not None:
+                lstm_dropout = self.hp_lstm_dropout
+            else:
+                lstm_dropout = 0.2
+        if adam_learning_rate is None:
+            if self.hp_adam_learning_rate is not None:
+                adam_learning_rate = self.hp_adam_learning_rate
+            else:
+                adam_learning_rate = 0.035
+        if hidden_layers is None:
+            if self.hp_hidden_layers is not None:
+                hidden_layers = self.hp_hidden_layers
+            else:
+                hidden_layers = 0
+        if hidden_layer_units is None:
+            if self.hp_hidden_layer_units is not None:
+                hidden_layer_units = self.hp_hidden_layer_units
+            else:
+                hidden_layer_units = []
+
+        # Handle the optional parameters
+        if train_split is None:
+            train_split = self.train_split
+        validation_split = 1 - train_split
+        split_limit = int(len(X) * train_split)
+
+        self.split_limit = split_limit
+        self.back_candles = backcandles
+
+        if shuffle is None and self.shuffle is not None:
+            shuffle = self.shuffle
 
         data_set = self.data_scaled
         feature_cnt = self.features
 
-        # Fetch optimized hyperparameters, if available.
-        self.fetch_opt_hyperparameters(self.ticker)
+        if use_bayes_opt is True:
+            # Fetch optimized hyperparameters, if available.
+            self.fetch_opt_hyperparameters(self.ticker)
 
         # Split the scaled data into training and testing
         # mylogger.info("lenX:",len(X), "splitLimit:",splitlimit)
-        X_train, X_test = X[:splitlimit], X[splitlimit:]  # Training data, Test Data
-        y_train, y_test = y[:splitlimit], y[splitlimit:]  # Training data, Test Data
+        X_train, X_test = X[:split_limit], X[split_limit:]  # Training data, Test Data
+        y_train, y_test = y[:split_limit], y[split_limit:]  # Training data, Test Data
 
-        # Get the model parameters from this object
-        batch_size = self.batch_size
-        epochs = self.epochs
-        shuffle = self.shuffle
-        validation_split = self.val_split
+        if hidden_layer_units is None:
+            hidden_layer_units = []
 
-        lstm_units = 200
-        lstm_dropout = 0.2
-        adam_learning_rate = 0.035
-        if self.lstm_units is not None:
-            lstm_units = self.lstm_units
-        if self.lstm_dropout is not None:
-            lstm_dropout = self.lstm_dropout
-        if self.adam_learning_rate is not None:
-            adam_learning_rate = self.adam_learning_rate
+        if len(hidden_layer_units) != hidden_layers:
+            e_txt = (f"Error: Ticker[{self.ticker}:{self.period}] Hidden layers [{hidden_layers}]"
+                     + f" and hidden_layer_units [{len(hidden_layer_units)}] do not match.")
+            self.logger.error(e_txt)
+            raise ValueError(e_txt)
+
+        # lstm_units: int = 200,
+        # lstm_dropout: Decimal = 0.2,
+        # adam_learning_rate: Decimal = 0.035,
+        # epochs: int = 100,
+        # batch_size: int = 32,
+        # hidden_layers: int = 0,
+        # hidden_layer_units: [int] = None,
 
         # Create the LSTM model
         if self.model is None:
             self.logger.debug("Creating a new model...")
-            lstm_input = Input(shape=(backcandels, feature_cnt), name='lstm_input')
-            inputs = LSTM(lstm_units, name='first_layer', dropout=lstm_dropout)(lstm_input)
+            lstm_input = Input(shape=(backcandles, feature_cnt), name='lstm_input')
+            inputs = LSTM(lstm_units, return_sequences=(hidden_layers > 1),
+                          name='first_layer', dropout=lstm_dropout)(lstm_input)
+            # Add LSTM layers hidden layers, as needed
+            for i in range(1, hidden_layers + 1):
+                # For all but the last layer, return full sequence
+                return_seq = i < hidden_layers
+                inputs = LSTM(hidden_layer_units[i - 1], return_sequences=return_seq,
+                              name=f'lstm_layer_{i + 1}', dropout=lstm_dropout)(inputs)
             inputs = Dense(self.targets, name='dense_layer')(inputs)
             output = Activation('linear', name='output')(inputs)
             model = Model(inputs=lstm_input, outputs=output)
@@ -1518,14 +1598,20 @@ class PricePredict():
 
         if len(X_test) > 0:
             y_pred = model.predict(X_test, verbose=self.keras_verbosity)
+            self.y_pred = y_pred
             fy_pred = np.array(pd.DataFrame(y_pred).replace({np.nan: 0}))
             fy_test = np.array(pd.DataFrame(y_test).replace({np.nan: 0}))
             mse = mean_squared_error(fy_test, fy_pred)
-            if self.Verbose:
+            if self.verbose:
                 self.logger.info(f"Mean Squared Error: {mse}")
 
             # Restore the scale of the prediction
+            # - Save the rescaled prediction to this object (self.pred_xxx)
             pred_rescaled = self.restore_scale_pred(y_pred.reshape(-1, self.targets))
+            # Adjust the prediction
+            # - The prediction is the prior closing price + the delta of the prediction's
+            #   last closing prices.
+            self.adjust_prediction()
         else:
             self.logger.warn("*** Won't predict. No test data.")
             y_pred = []
@@ -1537,59 +1623,84 @@ class PricePredict():
         self.X_test = X_test
         self.y_train = y_train
         self.y_test = y_test
-        self.target_close = np.array(self.orig_data['Adj Close'].iloc[backcandels + splitlimit - 1:])
-        self.target_high = np.array(self.orig_data['High'].iloc[backcandels + splitlimit - 1:])
-        self.target_low = np.array(self.orig_data['Low'].iloc[backcandels + splitlimit - 1:])
-        self.y_pred = y_pred
+        self.target_close = np.array(self.orig_data['Adj Close'].iloc[backcandles + split_limit - 1:])
+        self.target_high = np.array(self.orig_data['High'].iloc[backcandles + split_limit - 1:])
+        self.target_low = np.array(self.orig_data['Low'].iloc[backcandles + split_limit - 1:])
         self.mean_squared_error = mse
-        self.pred = y_pred
-        self.pred_rescaled = pred_rescaled
         self.dateStart_train = self.date_data.iloc[0].strftime("%Y-%m-%d")
         self.dateEnd_train = self.date_data.iloc[-1].strftime("%Y-%m-%d")
-        self.dateStart_pred = self.date_data.iloc[splitlimit + 1].strftime("%Y-%m-%d")
+        self.dateStart_pred = self.date_data.iloc[split_limit + 1].strftime("%Y-%m-%d")
         self.dateEnd_pred = self.date_data.iloc[-1].strftime("%Y-%m-%d")
         self.model = model
 
-        self.logger.info(f"=== Model Training Completed [{self.ticker}:{self.period}]...")
+        self.logger.debug(f"=== Model Training Completed [{self.ticker}:{self.period}]...")
 
         return model, y_pred, mse
 
-    def bayes_train_model(self, X, y, split_pcnt=0.8, backcandels=None,
-                          lstm_units=256, lstm_dropout=0.2, adam_learning_rate=0.001):
+    def bayes_train_model(self, X, y,
+                          split_pcnt: float = 0.8, backcandles: int = None,
+                          shuffle: bool = True, validation_split: float = 0.2,
+                          lstm_units: int = None,
+                          lstm_dropout: float = None,
+                          adam_learning_rate: float = None,
+                          epochs: int = None,
+                          batch_size: int = None,
+                          hidden_layers: int = None,
+                          hidden_layer_units: [int] = None):
         """
         Train the model.
         Given the training data, split it into training and testing data.
         Train the model and return the model and the prediction.
         Adjust the prediction are not made here.
+
         :param X:
         :param y:
         :param split_pcnt:
-        :param backcandels:
+        :param backcandles:
+        :param shuffle:
+        :param validation_split:
+        # --- Hyperparameters
+        :param lstm_units:
+        :param lstm_dropout:
+        :param adam_learning_rate:
+        :param epochs:
+        :param batch_size:
+        :param hidden_layers:
+        :param hidden_layer_units:
+
         :return:
         """
 
-        self.logger.info(f"=== Training Model [{self.ticker}:{self.period}]...")
+        self.logger.debug(f"=== Training Model [{self.ticker}:{self.period}]...")
+        self.logger.debug(f"Split Percentage: {split_pcnt}  Back Candles: {backcandles}")
+        self.logger.debug(f"Shuffle: {shuffle}  Validation Split: {validation_split}")
+        self.logger.debug(f"LSTM Units: {lstm_units}  LSTM Dropout: {lstm_dropout}")
+        self.logger.debug(f"Adam Learning Rate: {adam_learning_rate}")
+        self.logger.debug(f"Epochs: {epochs}  Batch Size: {batch_size}")
+        self.logger.debug(f"Hidden Layers: {hidden_layers}  Hidden Layer Units: {hidden_layer_units}")
+        self.logger.debug(f"-----------------------------------------------------------------")
         # Handle the optional parameters
         if split_pcnt is None:
             split_pcnt = self.split_pcnt
         splitlimit = int(len(X) * split_pcnt)
 
         self.split_limit = splitlimit
-        if backcandels is None:
-            backcandels = self.back_candles
+        if backcandles is None:
+            backcandles = self.back_candles
 
         data_set = self.data_scaled
         feature_cnt = self.features
 
-        # Get the model parameters from this object
-        batch_size = self.batch_size
-        epochs = self.epochs
-        shuffle = self.shuffle
-        validation_split = self.val_split
-
         self.logger.debug("Creating a new model...")
-        lstm_input = Input(shape=(backcandels, feature_cnt), name='lstm_input')
-        inputs = LSTM(int(lstm_units), name='first_layer', dropout=lstm_dropout)(lstm_input)
+        lstm_input = Input(shape=(backcandles, feature_cnt), name='lstm_input')
+        inputs = LSTM(int(lstm_units), return_sequences=(hidden_layers > 1),
+                      name='first_layer', dropout=lstm_dropout)(lstm_input)
+        # Add additional LSTM layers hidden layers, as needed
+        for i in range(1, hidden_layers):
+            # For all but the last layer, return full sequence
+            return_seq = i < (hidden_layers - 1)
+            inputs = LSTM(hidden_layer_units[i - 1], return_sequences=return_seq,
+                          name=f'lstm_layer_{i + 1}', dropout=lstm_dropout)(inputs)
         inputs = Dense(self.targets, name='dense_layer')(inputs)
         output = Activation('linear', name='output')(inputs)
         model = Model(inputs=lstm_input, outputs=output)
@@ -1615,9 +1726,20 @@ class PricePredict():
         if self.bayes_best_loss is None or abs(loss) < abs(self.bayes_best_loss):
             self.bayes_best_loss = loss
             # Hold on to the best Hyperparameters
-            self.lstm_units = lstm_units
-            self.lstm_dropout = lstm_dropout
-            self.adam_learning_rate = adam_learning_rate
+            self.hp_epochs = epochs
+            self.hp_batch_size = batch_size
+            self.hp_lstm_units = lstm_units
+            self.hp_lstm_dropout = lstm_dropout
+            self.hp_adam_learning_rate = adam_learning_rate
+            self.hp_hidden_layers = hidden_layers
+            self.hp_hidden_layer_units = hidden_layer_units
+            # Hold on the values required for prediction
+            self.X_train = X_train
+            self.X_test = X_test
+            self.y_train = y_train
+            self.y_test = y_test
+            self.X = X
+            self.y = y
             # Hold onto the best model found thus far.
             self.bayes_best_model = model
 
@@ -1628,18 +1750,53 @@ class PricePredict():
                               pb_lstm_units=(32, 256),
                               pb_lstm_dropout=(0.1, 0.5),
                               pb_adam_learning_rate=(0.001, 0.1),
+                              pb_epochs=(5, 300),
+                              pb_batch_size=(16, 128),
+                              pb_hidden_layers=(0, 4),
+                              pb_hidden_layer_units_1=(16, 256),
+                              pb_hidden_layer_units_2=(16, 256),
+                              pb_hidden_layer_units_3=(16, 256),
+                              pb_hidden_layer_units_4=(16, 256),
                               opt_csv=None):
         """
         Perform Bayesian Optimization on the model.
         """
 
-        # ======================================================
-        # === This is the function that we want to optimize ===
-        def optimize_model(lstm_units=None, lstm_dropout=None, adam_learning_rate=None):
+        # =======================================================================
+        # === This is the inner function where we try various hyperparameters ===
+        def optimize_model(lstm_units: int = None,
+                           lstm_dropout: float = None,
+                           adam_learning_rate: float = None,
+                           epochs: int = None,
+                           batch_size: int = None,
+                           hidden_layers: int = None,
+                           hidden_layer_units_1: int = None,
+                           hidden_layer_units_2: int = None,
+                           hidden_layer_units_3: int = None,
+                           hidden_layer_units_4: int = None):
+
+            hidden_layer_units = None
+            if hidden_layer_units_1 is not None:
+                hidden_layer_units = [int(hidden_layer_units_1)]
+            if hidden_layer_units_2 is not None:
+                hidden_layer_units.append(int(hidden_layer_units_2))
+            if hidden_layer_units_3 is not None:
+                hidden_layer_units.append(int(hidden_layer_units_3))
+            if hidden_layer_units_4 is not None:
+                hidden_layer_units.append(int(hidden_layer_units_4))
+            if hidden_layers is not None and hidden_layer_units is not None:
+                # Truncate the hidden_layer_units list to the number of hidden_layers.
+                hidden_layer_units = hidden_layer_units[:int(hidden_layers)]
+
             loss = self.bayes_train_model(X, y,
-                                          lstm_units=lstm_units,
+                                          lstm_units=int(lstm_units),
                                           lstm_dropout=lstm_dropout,
-                                          adam_learning_rate=adam_learning_rate)
+                                          adam_learning_rate=adam_learning_rate,
+                                          epochs=int(epochs),
+                                          batch_size=int(batch_size),
+                                          hidden_layers=int(hidden_layers),
+                                          hidden_layer_units=hidden_layer_units)
+
             # Loss is flipped because we want to maximize the loss.
             return -loss
 
@@ -1649,18 +1806,31 @@ class PricePredict():
         optimizer = BayesianOptimization(f=optimize_model,
                                          pbounds={'lstm_units': pb_lstm_units,
                                                   'lstm_dropout': pb_lstm_dropout,
-                                                  'adam_learning_rate': pb_adam_learning_rate},
-                                         random_state=42)
+                                                  'adam_learning_rate': pb_adam_learning_rate,
+                                                  'epochs': pb_epochs,
+                                                  'batch_size': pb_batch_size,
+                                                  'hidden_layers': pb_hidden_layers,
+                                                  'hidden_layer_units_1': pb_hidden_layer_units_1,
+                                                  'hidden_layer_units_2': pb_hidden_layer_units_2,
+                                                  'hidden_layer_units_3': pb_hidden_layer_units_3,
+                                                  'hidden_layer_units_4': pb_hidden_layer_units_4})
+
         optimizer.maximize(init_points=10, n_iter=20)
 
         # Save the best parameters
         self.bayes_opt_hypers = optimizer.max
-        self.lstm_dropout = optimizer.max['params']['lstm_dropout']
-        self.lstm_units = optimizer.max['params']['lstm_units']
-        self.adam_learning_rate = optimizer.max['params']['adam_learning_rate']
+        self.hp_lstm_dropout = optimizer.max['params']['lstm_dropout']
+        self.hp_lstm_units = optimizer.max['params']['lstm_units']
+        self.hp_adam_learning_rate = optimizer.max['params']['adam_learning_rate']
+        self.hp_epochs = optimizer.max['params']['epochs']
+        self.hp_batch_size = optimizer.max['params']['batch_size']
+        self.hp_hidden_layers = optimizer.max['params']['hidden_layers']
+        self.hp_hidden_layer_units = [optimizer.max['params']['hidden_layer_units_1'],
+                                      optimizer.max['params']['hidden_layer_units_2'],
+                                      optimizer.max['params']['hidden_layer_units_3'],
+                                      optimizer.max['params']['hidden_layer_units_4']]
 
-        self.logger.info(f"Ticker: [{self.ticker}:{self.period}] Bayesian Optimization: {optimizer.max}")
-        print(f"Bayesian Optimization: {{ Ticker: [{self.ticker}:{self.period}]: {optimizer.max} }}")
+        self.logger.debug(f"Ticker: [{self.ticker}:{self.period}] Bayesian Optimization: {optimizer.max}")
 
         # Make this PP objects models the best model found by the optimizer.
         self.model = self.bayes_best_model
@@ -1668,6 +1838,18 @@ class PricePredict():
         self.bayes_best_model = None
         # Save out eh best model
         self.save_model(model=self.model, ticker=self.ticker)
+
+        # Run the last best prediction
+        self.predict_price(self.X)
+        # Restore the scale of the prediction
+        # - Save the rescaled prediction to this object (self.pred_xxx)
+        self.restore_scale_pred(self.y_pred.reshape(-1, self.targets))
+        # Adjust the prediction
+        # - The prediction is the prior closing price + the delta of the prediction's
+        #   last closing prices.
+        self.adjust_prediction()
+        # Analyze the prediction
+        self.prediction_analysis()
 
         if opt_csv is not None:
             # Append the results to a CSV file.
@@ -1732,34 +1914,99 @@ class PricePredict():
 
         return model, model_path
 
-    def predict_price(self, X_data):
+    def predict_price(self, X_data: [] = None, model_path: str = None,
+                      start_date: str = None, end_date: str = None):
         """
         Predict the next price.
-        If  X_data is None, then we will fetch the require data from Yahoo Finance and pre-process it.
+        If  X_data is None, then fetch the require data from Yahoo Finance and pre-process it.
+        After predicting the price, adjust the prediction and perform an analysis on the prediction.
+
+        :parameters:
+            An array of prior price and indicator data with placeholders for the predicted values.
+            This data is passed into
+        :param X_data:
+        :param model_path:
+        :param start_date:
+        :param end_date:
+        :return:
         """
-        self.logger.info(f"=== Predicting Price for [{self.ticker}:{self.period}]...")
+        self.logger.debug(f"=== Predicting Price for [{self.ticker}:{self.period}]...")
+
+        if self.model is None:
+            e_txt = f"Error: Ticker[{self.ticker}] Model is None. Model must be trained before making predictions."
+            self.logger.error(e_txt)
+            raise ValueError(e_txt)
+
+        if model_path is None and self.model_path is None:
+            self.logger.error("Error: The model_path parameter is required.")
+            raise ValueError("Error: The model_path parameter is required.")
+        else:
+            model_path = self.model_path
+
+        if model_path is not None and model_path != '':
+            model_path = model_path.replace('=', '~')
+            # Extract the ticker from the model path
+            ticker, period, dateStart_train, dateEnd_train = model_path.split('_')
+            # Python does not like the = sign in filenames.
+            # So, we restore the = sign to the ~ ticker symbol.
+            ticker = ticker.replace('~', '=')
+            if '/' in ticker:
+                ticker = ticker.split('/')[-1]
+
+            # Verify that the model ticker matches the object ticker.
+            if ticker != self.ticker:
+                e_txt = f"Error: Ticker[{self.ticker}] does not match the model ticker[{ticker}] in model file: {model_path}"
+                self.logger.error(e_txt)
+                raise ValueError(e_txt)
+
+        if start_date is not None:
+            # if we have a start_date, load the data from Yahoo Finance.
+            # else just use the last prediction dates in self.dateStart_pred and self.dateEnd_pred.
+            if end_date is None:
+                end_date = datetime.now().strftime('%Y-%m-%d')
+            self.dateStart_pred = start_date
+            self.dateEnd_pred = end_date
+
+            if start_date is None or end_date is None:
+                self.logger.error("Error: The date_start and date_end parameters is required.")
+                raise ValueError("Error: The date_start and date_end parameters is required.")
 
         if X_data is None:
-            data, features = self.fetch_data_yahoo(self.ticker, self.dateStart_pred, self.dateEnd_pred)
-            # Augment the data with additional indicators/features
-            aug_data, features, targets, dates_data = self.augment_data(data, features)
-            # Scale the augmented data
-            scaled_data, scaler = self.scale_data(aug_data)
-            # Prepare the scaled data for model inputs
-            X_data, y = self.prep_model_inputs(scaled_data, features)
+            # Load training data and prepare the data
+            X, y = self._fetch_n_prep(self.ticker, start_date, end_date,
+                                      split_pcnt=0)
+            X_data = X
+            # Get a list of the actual closing prices for the test period.
+            closes = np.array(self.orig_data['Adj Close'])[:len(X) - 1]
+            closes = np.append(closes, closes[-1])
+            highs = np.array(self.orig_data['High'])[:len(X) - 1]
+            highs = np.append(highs, highs[-1])
+            lows = np.array(self.orig_data['Low'])[:len(X) - 1]
+            lows = np.append(lows, lows[-1])
+            self.target_close = closes
+            self.target_high = highs
+            self.target_low = lows
             # Make Predictions on all the data
             self.split_pcnt = 1.0
+
+        # By this point we should have the X_data to make the prediction.
+        # But check to make sure.
+        if X_data is None:
+            e_txt = f"Error: Ticker[{self.ticker}] X_data is None. X_data must be provided."
+            self.logger.error(e_txt)
+            raise ValueError(e_txt)
 
         try:
             # Perform the prediction
             y_pred = self.model.predict(X_data, verbose=self.keras_verbosity)
+            self.y_pred = y_pred
         except Exception as e:
             self.logger.error(f"Error: Predicting Price: {e}")
             return None
-        else:
+        else:  # try's else
             # if self.split_limit is None:
             #     self.split_limit = int(len(X_data) * self.split_pcnt)
-            self.split_limit = int(len(X_data) * self.split_pcnt)
+            self.split_limit = int(len(X_data) * self.train_split)
 
             # Rescaled the predicted values to dollars...
             data_set_scaled_y = self.data_scaled[-(self.back_candles + self.split_limit):, :].copy()
@@ -1767,17 +2014,41 @@ class PricePredict():
             min_len = min(len(y_pred), len(data_set_scaled_y))
             data_set_scaled_y[-min_len:, -self.targets:] = y_pred[-min_len:]
 
-            y_pred_rs = self.scaler.inverse_transform(data_set_scaled_y)
-            self.pred = y_pred
-            self.pred_rescaled = y_pred_rs
-            self.pred_class = y_pred_rs[:, -4]
-            self.pred_close = y_pred_rs[:, -3]
-            self.pred_high = y_pred_rs[:, -2]
-            self.pred_low = y_pred_rs[:, -1]
+            # Restore the scale of the prediction
+            # - Save the rescaled prediction to this object (self.pred_xxx)
+            pred_rescaled = self.restore_scale_pred(y_pred.reshape(-1, self.targets))
 
             self.logger.debug(f"=== Price Prediction Completed [{self.ticker}:{self.period}]...")
 
-        return y_pred
+            # Perform data alignment/adjustment on the prediction data.
+            # - We take the deltas of the prediction and apply them to the prior actual values.
+            # - The expectation is that the predictions deltas are the valuable information.
+            # - The abs(deltas) are also ranked from 1 to 10 info self.pred_rank.
+            # - We should check if the prediction rank can be applied to an HMM model.
+            # Doing so makes use the the prediction deltas rather than the actual values.
+            # Detail re self.adj_xxx are stored to this object in the adjust_prediction method.
+            self.adjust_prediction()
+
+            if start_date is not None:
+                # From the prediction call or current date_start
+                self.dateStart_pred = start_date
+            elif self.date_data is not None:
+                self.dateStart_pred = self.date_data.iloc[0].strftime('%Y-%m-%d')
+
+            if end_date is not None:
+                # From the prediction call or current date_end
+                self.dateEnd_pred = end_date
+            elif self.date_data is not None:
+                self.dateEnd_pred = self.date_data.iloc[-1].strftime('%Y-%m-%d')
+
+            pred_dates = self.date_data
+            pred_dates = pd.concat([pred_dates, pd.Series(self.date_data.iloc[-1] + self.next_timedelta())])
+            self.pred_dates = pred_dates
+
+            # Perform an analysis of the prediction
+            self.prediction_analysis()
+
+        return self.y_pred
 
     def adjust_prediction(self):
         """
@@ -1843,7 +2114,9 @@ class PricePredict():
         self.pred_last_delta = pred_delta_c[-2]  # Index to 2nd to last value, as the last value is a placeholder.
         pred_sign = np.sign(pred_delta_c[-2])  # Index to 2nd to last value, as the last value is a placeholder.
         # Invert the rank so that longs are positive and shorts are negative
-        self.pred_rank = (pred_sign * pred_rank) * -1
+        #self.pred_rank = (pred_sign * pred_rank) * -1
+        # Stash all prediction rankings.
+        self.pred_rank = ranking
 
         self.target_close = target_close
         self.target_high = target_high
@@ -2124,7 +2397,7 @@ class PricePredict():
 
     def _fetch_n_prep(self, ticker: str, date_start: str, date_end: str,
                       period: str = None, split_pcnt: float = 0.05,
-                      backcandels: bool = None):
+                      backcandles: bool = None):
 
         # Handle the optional parameters
         if period is None:
@@ -2138,10 +2411,10 @@ class PricePredict():
             split_pcnt = self.split_pcnt
         else:
             self.split_pcnt = split_pcnt
-        if backcandels is None:
-            backcandels = self.back_candles
+        if backcandles is None:
+            backcandles = self.back_candles
         else:
-            self.back_candles = backcandels
+            self.back_candles = backcandles
 
         # Load data from Yahoo Finance
         orig_data, features = self.fetch_data_yahoo(ticker, date_start, date_end, period)
@@ -2195,91 +2468,15 @@ class PricePredict():
 
         # TODO: Load a 'W'eekly model
 
-        if model_path is None and self.model_path is None:
-            self.logger.error("Error: The model_path parameter is required.")
-            raise ValueError("Error: The model_path parameter is required.")
-        else:
-            model_path = self.model_path
+        self.predict_price(start_date=date_start, end_date=date_end)
 
-        if date_start is None or date_end is None:
-            self.logger.error("Error: The date_start and date_end parameters is required.")
-            raise ValueError("Error: The date_start and date_end parameters is required.")
-
-        model_path = model_path.replace('=', '~')
-
-        # Extract the ticker from the model path
-        ticker, period, dateStart_train, dateEnd_train = model_path.split('_')
-        # Python does not like the = sign in filenames.
-        # So, we restore the = sign to the ~ ticker symbol.
-        ticker = ticker.replace('~', '=')
-        if '/' in ticker:
-            ticker = ticker.split('/')[-1]
-
-        # Load the model
-        # Python does not like the = sign in filenames.
-        model_path = model_path.replace('=', '~')
-        model = self.load_model(model_path)
-        # Load the data period to predict
-        orig_data, features = self.fetch_data_yahoo(ticker, date_start, date_end)
-        # Augment the data
-        aug_data, features, targets, dates = self.augment_data(orig_data, features)
-        # Scale the data
-        data_scaled, scaler = self.scale_data(aug_data)
-        # Prepare the model inputs
-        X, y = self.prep_model_inputs(data_scaled, features)
-        # Predict the price
-        orig_predictions = model.predict(X, verbose=self.keras_verbosity)
-        # Restore the scale of the prediction
-        rs_orig_predictions = self.restore_scale_pred(orig_predictions)
-
-        # Hold on to the un-rescaled prediction data
-        pred_class = rs_orig_predictions[:, 0]
-        pred_close = rs_orig_predictions[:, 1]
-        pred_high = rs_orig_predictions[:, 2]
-        pred_low = rs_orig_predictions[:, 3]
-
-        # Adjust the prediction
-        adj_pred_close, adj_pred_high, adj_pred_low = self.adjust_prediction()
-
-        # Get a list of the actual closing prices for the test period.
-        closes = np.array(orig_data['Adj Close'])[:len(X) - 1]
-        closes = np.append(closes, closes[-1])
-        highs = np.array(orig_data['High'])[:len(X) - 1]
-        highs = np.append(highs, highs[-1])
-        lows = np.array(orig_data['Low'])[:len(X) - 1]
-        lows = np.append(lows, lows[-1])
-
-        self.dateStart_train = dateStart_train
-        self.dateEnd_train = dateEnd_train
-        self.dateStart_pred = date_start
-        self.dateEnd_pred = date_end
-        self.orig_data = orig_data
-        self.data_scaled = data_scaled
-        self.scaler = scaler
-        self.X = X
-        self.y = y
-        self.target_close = closes
-        self.target_high = highs
-        self.target_low = lows
-
-        self.pred = orig_predictions
-        self.pred_rescaled = rs_orig_predictions
-        self.pred_class = pred_class
-        self.pred_close = pred_close
-        self.pred_high = pred_high
-        self.pred_low = pred_low
-
-        pred_dates = self.date_data
-
-        pred_dates = pd.Series._append(pred_dates, pd.Series(self.date_data.iloc[-1] + self.next_timedelta()))
-
-        return self.adj_pred, pred_dates
+        return self.adj_pred, self.pred_dates
 
     def fetch_train_and_predict(self, ticker,
                                 train_date_start, train_date_end,
                                 pred_date_start, pred_date_end,
                                 force_training=False,
-                                period=None, split_pcnt=None, backcandels=None,
+                                period=None, split_pcnt=None, backcandles=None,
                                 use_curr_model=True, save_model=False):
         """
         Train and test the model.
@@ -2295,7 +2492,7 @@ class PricePredict():
         Optional Parameters:
         :param period=None:      # The period of the data, daily or weekly
         :param split_pcnt=None:  # The percentage of the data to use for training
-        :param backcandels=None: # The number of candles to look back for each period
+        :param backcandles=None: # The number of candles to look back for each period
         :param save_model=False: # Save the model if True, and force training
 
         :return:
@@ -2322,10 +2519,10 @@ class PricePredict():
             split_pcnt = self.split_pcnt
         else:
             self.split_pcnt = split_pcnt
-        if backcandels is None:
-            backcandels = self.back_candles
+        if backcandles is None:
+            backcandles = self.back_candles
         else:
-            self.back_candles = backcandels
+            self.back_candles = backcandles
 
         model = None
         if use_curr_model and force_training is False:
@@ -2352,7 +2549,7 @@ class PricePredict():
             # Training split the X & y data into training and testing data
             # What is returned is the model, the prediction, and the mean squared error.
             model, y_pred, mse = self.train_model(X, y,
-                                                  split_pcnt=split_pcnt, backcandels=backcandels)
+                                                  split_pcnt=split_pcnt, backcandles=backcandles)
 
             if len(y_pred) != 0:
                 pcnt_nan = (len(y_pred) - np.count_nonzero(~np.isnan(y_pred))) / len(y_pred)
@@ -2361,33 +2558,7 @@ class PricePredict():
                     # Throw a data exception if the model is not trained properly.
                     raise ValueError("Error: Prediction has too many NaNs. Check for Nans in the data?")
 
-            # Load testing data and prepare the data
-            X, y = self._fetch_n_prep(ticker, pred_date_start, pred_date_end,
-                                      period=period, split_pcnt=0)
-            # Predict the price for the test period
-            y_pred = self.predict_price(X)
-
-            pcnt_nan = (len(y_pred) - np.count_nonzero(~np.isnan(y_pred))) / len(y_pred)
-            if pcnt_nan > 0.1:
-                self.logger.info(f"\n*** NaNs in y_pred: {pcnt_nan}%")
-                # Throw a data exception if the model is not trained properly.
-                raise ValueError("Error: Prediction has too many NaNs. Check for Nans in the data?")
-
-            adj_pred_close, adj_pred_high, adj_pred_low = self.adjust_prediction()
-            # ============= End of training and testing the model
-            # Save the model?
-            if save_model:
-                self.save_model(model, model_dir=self.model_dir,
-                                ticker=ticker,
-                                date_start=train_date_start, date_end=train_date_end)
-                self.model = model
-
-        self.dateStart_train = train_date_start
-        self.dateEnd_train = train_date_end
-        self.dateStart_pred = pred_date_start
-        self.dateEnd_pred = pred_date_end
-        self.X = X
-        self.y = y
+            self.predict_price(start_date=pred_date_start, end_date=pred_date_end)
 
         return self.model
 
@@ -2445,15 +2616,17 @@ class PricePredict():
         # mylogger.info(f"elements:{elements}")
         tot_deltas = 0
         tot_tradrng = 0
-        for i in range(-1, -elements, -1):
-            actual = self.orig_data['Adj Close'].iloc[i - 1]
-            predval = self.adj_pred[i - 1][1]
-            pred_delta = abs(predval - actual)
-            tot_deltas += pred_delta
-            trd_rng = abs(self.orig_data['High'].iloc[i] - self.orig_data['Low'].iloc[i])
-            tot_tradrng += trd_rng
-            self.logger.info(f"{i}: Close: {actual.round(2)}  Predicted: ${predval.round(2)}  Actual: ${actual.round(2)}" +
-                             f"  Delta: ${pred_delta.round(6)}  Trade Rng: ${trd_rng.round(2)}")
+        if self.verbose:
+            # Output an Analysis of the prediction
+            for i in range(-1, -elements, -1):
+                actual = self.orig_data['Adj Close'].iloc[i - 1]
+                predval = self.adj_pred[i - 1][1]
+                pred_delta = abs(predval - actual)
+                tot_deltas += pred_delta
+                trd_rng = abs(self.orig_data['High'].iloc[i] - self.orig_data['Low'].iloc[i])
+                tot_tradrng += trd_rng
+                self.logger.debug(f"{i}: Close: {actual.round(2)}  Predicted: ${predval.round(2)}  Actual: ${actual.round(2)}" +
+                                 f"  Delta: ${pred_delta.round(6)}  Trade Rng: ${trd_rng.round(2)}")
 
         # Get up days vs down days
         self_data = self.orig_data
@@ -2473,7 +2646,9 @@ class PricePredict():
         min_len = min(len(self_close_trends), len(self_adj_trends), len(self_prd_trends))
         # Truncate the lists to the min length
         self_close_trends = self_close_trends[-min_len:]
+        self.trends_close = self_close_trends
         self_adj_trends = self_adj_trends[-min_len:]
+        self.trends_adj = self_adj_trends
         self_prd_trends = self_prd_trends[-min_len:]
 
         # Calculate the corr for adjusted predictions
@@ -2486,6 +2661,7 @@ class PricePredict():
 
         # Calculate the corr for original predictions
         corr_prd_list = [self_close_trends[i] + self_prd_trends[i] for i in range(len(self_close_trends))]
+        self.trends_corr = corr_prd_list
         total_days = len(corr_prd_list)
         corr_prd_days = corr_prd_list.count(2) + corr_prd_list.count(-2)
         uncorr_prd_days = corr_prd_list.count(0)
@@ -2494,10 +2670,10 @@ class PricePredict():
 
             # Calculate a df pf trends of 'Adj Close' as 1-up 0-flat -1-down
 
-        self.logger.info("============================================================================")
-        self.logger.info(f"Mean Trading Range: ${round(tot_tradrng / elements, 2)}")
-        self.logger.info(f"Mean Delta (Actual vs Prediction): ${round((tot_deltas / elements), 2)}")
-        self.logger.info("============================================================================")
+        self.logger.debug("============================================================================")
+        self.logger.debug(f"Mean Trading Range: ${round(tot_tradrng / elements, 2)}")
+        self.logger.debug(f"Mean Delta (Actual vs Prediction): ${round((tot_deltas / elements), 2)}")
+        self.logger.debug("============================================================================")
 
         analysis = dict()
         analysis['actual_vs_pred'] = {'mean_trading_range': round(tot_tradrng / elements, 2),
@@ -2519,14 +2695,14 @@ class PricePredict():
             tot_deltas += pred_delta
             trd_rng = abs(self.orig_data['High'].iloc[i] - self.orig_data['Low'].iloc[i])
             tot_tradrng += trd_rng
-            self.logger.info(
+            self.logger.debug(
                 f"{i}: Close {actual.round(2)}  Predicted: ${predval.round(2)}  Actual: ${actual.round(2)}" +
                 f"  Delta:${pred_delta.round(6)}  Trade Rng: ${trd_rng.round(2)}")
 
-        self.logger.info("============================================================================")
-        self.logger.info(f"Mean Trading Range: ${round(tot_tradrng / elements, 2)}")
-        self.logger.info(f"Mean Delta (Actual vs Prediction): ${round((tot_deltas / elements), 2)}")
-        self.logger.info("============================================================================")
+        self.logger.debug("============================================================================")
+        self.logger.debug(f"Mean Trading Range: ${round(tot_tradrng / elements, 2)}")
+        self.logger.debug(f"Mean Delta (Actual vs Prediction): ${round((tot_deltas / elements), 2)}")
+        self.logger.debug("============================================================================")
 
         analysis['actual_vs_adj_pred'] = {'mean_trading_range': round(tot_tradrng / elements, 2),
                                           'mean_delta': round((tot_deltas / elements), 2),
@@ -2604,7 +2780,7 @@ class PricePredict():
                 'pred_last_delta': f'{round(self.pred_last_delta, 4)}',
                 'pred_rank': f'{self.pred_rank}'}
 
-            self.pred_strength = round((self.pred_rank + (self.season_rank * self.season_corr)) / 20, 4)
+            self.pred_strength = np.round((self.pred_rank + (self.season_rank * self.season_corr)) / 20, 4)
             analysis['pred_strength'] = {
                 'strength': f'{self.pred_strength}'}
 
@@ -2632,7 +2808,7 @@ class PricePredict():
                           adj_pred_close, adj_pred_high, adj_pred_low,
                           title=''):
         # Plot the scaled test and predicted data.
-        plt.figure(figsize=(16, 8))
+        plt.figure(figsize=(16, 8), facecolor='grey')
         # Acj Close
         if target_close is not None:
             plt.plot(target_close, color='black', label='Target Close', linestyle='-')
@@ -2918,13 +3094,16 @@ class PricePredict():
                      <promptInputs>
                          <Purpose>
                          Please perform a critical analyze the following balance sheets and income statements and 
-                         give me a review of the company from a financial perspective and be critical of values from period to
-                         period and consider if missing values indicate mis-reporting of data. And, add a summary of sentiment
-                         analysis of the company from the viewpoint of board members, from the viewpoint of shareholders, and 
-                         from the viewpoint of short sellers. Finally, create a sentiment analysis score for the company from 1 to 5,
-                         where 1 is very negative and 5 is very positive. Separate each section into its json attribute.
-                         Place the JSON output between the "<JsonOutputFormat>" and "</JsonOutputFormat>" tags, at the start of the response.
-                         Place the sentiment text output between the "<sentimentTextOutput>" and "</sentimentTextOutput>" tags, at a the end of the response.
+                         give me a review of the company from a financial perspective and be critical of values from 
+                         period to period and consider if missing values indicate mis-reporting of data. And, add a
+                         summary of sentiment analysis of the company from the viewpoint of board members, from the
+                         viewpoint of shareholders, and from the viewpoint of short sellers. Finally, create a
+                         sentiment analysis score for the company from 1 to 5, where 1 is very negative and 5 is
+                         very positive. Separate each section into its json attribute.
+                         Please, place the correctly formatted JSON output between the "<JsonOutputFormat>" and
+                         "</JsonOutputFormat>" tags, at the start of the response.
+                         Please, place the sentiment text output between the "<sentimentTextOutput>" and 
+                         "</sentimentTextOutput>" tags, at a the end of the response.
                          </Purpose>
                          <BalanceSheet>
                          {balance_sheet}

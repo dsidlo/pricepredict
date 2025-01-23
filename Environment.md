@@ -12,6 +12,8 @@
 
 ## [TA-Lib Installation](https://mrjbq7.github.io/ta-lib)
 
+** It turns out that Pandas TA already include the TA-Lib functions. **
+
 - 150+ Indicators and Candlestick Pattern Recognition
 
 ```shell

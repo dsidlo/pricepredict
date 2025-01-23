@@ -224,7 +224,12 @@ def check_pair_evaluated(obj_cache, symbol1, symbol2, pc_period):
 
 
 def gen_pair_trading_analysis(symbol1, mp_lock=None, return_dict=None):
-
+    """
+    This function is our main worker function that will be run in parallel by the Pool.map() function.
+    It needs to read all of the daily PPO objects from the cache, and then run a correlation test between
+    symbol1 and all other symbols to find historical cointegration and stationarity between the pairs.
+    It will open the object cache in read-only mode, and then close it when done.
+    """
     sym_ppos = read_daily_ppos()
 
     obj_cache = open_obj_cache_write()
@@ -317,6 +322,9 @@ if __name__ == '__main__':
         manager = mp.Manager()
         return_dict = manager.dict()
         lock = manager.Lock()
+        # The partial function is used to pass the mp_lock and return_dict to the
+        # gen_pair_trading_analysis function as these parameters cannot be passed directly
+        # to the pool.map() function.
         partial_worker = partial(gen_pair_trading_analysis, mp_lock=None, return_dict=return_dict)
         # Hand a symbol to the gen_pair_trading_analysis function via concurrent.futures.
         results = pool.map(partial_worker, sorted(sym_ppos.keys()))
