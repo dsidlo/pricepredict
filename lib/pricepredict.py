@@ -145,28 +145,27 @@ class PricePredict():
 
     def __init__(self,
                  ticker='',  # The ticker for the data
+                 period=PeriodDaily,  # The period for the data (D, W)
+                 # Directories
                  model_dir='./models/',  # The directory where the model is saved
                  chart_dir='./charts/',  # The directory where the charts are saved
                  preds_dir='./predictions/',  # The directory where the predictions are saved
-                 period=PeriodDaily,  # The period for the data (D, W)
+                 ppo_dir='./ppo/',  # The directory where the partial prediction optimization data is saved
+                 # Training Parameters
                  back_candles=15,  # The number of candles to look back for each period.
                  train_split=0.8,  # The value for splitting data into training and testing.
                  batch_size=30,  # The batch size for training the model.
                  epochs=50,  # The number of epochs for training the model.
-                 lstm_units=256,  # The current models units/neurons
-                 lstm_dropout=0.2,  # The current models dropout
-                 lstm_hidden_layers=0,  # The current models hidden layers
-                 lstm_hidden_units=128,  # The current models hidden units/neurons
-                 adam_learning_rate=0.035,  # The current models learning rate
                  shuffle=True,  # Shuffle the data for training the model.
-                 val_split=0.1,  # The validation split used during training.
-                 keras_verbosity=0,
-                 verbose=True,  # Print debug information
+                 force_training=False,  # Force training the model
+                 # Logging and Debugging
+                 verbose=True,  # This Class' Print debug information
+                 keras_verbosity=0, # The keras verbosity level
                  logger=None,  # The mylogger for this object
                  logger_file_path=None,  # The path to the log file
                  log_level=None,  # The logging level
-                 force_training=False,  # Force training the model
                  keras_log='PricePredict_keras.log',  # The keras log file
+                 # yfinance
                  yf_sleep=61,  # The sleep time for yfinance requests
                  ):
         """
@@ -194,6 +193,8 @@ class PricePredict():
         self.chart_dir = chart_dir  # The directory where the charts are saved
         self.chart_path = ''  # The path to the current chart
         self.seasonal_chart_path = ''  # The path to the seasonal decomposition chart
+        self.ppo_dir = ppo_dir  # The directory where the partial prediction optimization data is saved
+        self.ppo_file = None  # The file where the partial prediction optimization data is saved
         self.period = period  # The period for the data (D, W)
         self.model = None  # The current loaded model
         # ---- Bayesian Optimization ----
@@ -211,13 +212,13 @@ class PricePredict():
         self.cached_data = None  # Interpolated cached data
         self.missing_rows_analysis = None  # Save the missing rows analysis for later review.
         self.date_data = None  # Save the date data for later use.
-        self.aug_data = None  # Save the augmented data for later use.
-        self.features = None  # The number of features in the data
-        self.targets = None  # The number of targets (predictions) in the data
-        self.data_scaled = None  # Save the scaled data for later use.
         self.force_training = force_training  # Force training the model
-        self.dateStart_train = None  # The start date for the training period
-        self.dateEnd_train = None  # The end date for the training period
+        # Training Parameters
+        self.shuffle = shuffle  # Shuffle the data for training the model.
+        self.train_split = train_split  # The validation split used during training.
+        self.batch_size = batch_size  # The batch size for training the model.
+        self.epochs = epochs  # The number of epochs for training the model.
+        # Training and Data/Results
         self.X = None  # 3D array of training data.
         self.y = None  # Target values (Adj Close)
         self.X_train = None  # Training data
@@ -230,6 +231,12 @@ class PricePredict():
         self.target_close = None  # The target close
         self.target_high = None  # The target high
         self.target_low = None  # The target low
+        self.dateStart_train = None  # The start date for the training period
+        self.dateEnd_train = None  # The end date for the training period
+        self.aug_data = None  # Save the augmented data for later use.
+        self.features = None  # The number of features in the data
+        self.targets = None  # The number of targets (predictions) in the data
+        self.data_scaled = None  # Save the scaled data for later use.
         self.pred = None  # The rescaled predictions (3 columns)
         self.dateStart_pred = None  # The start date for the prediction period
         self.dateEnd_pred = None  # The end date for the prediction period
@@ -250,11 +257,6 @@ class PricePredict():
         self.trends_adj_close = None  # The trends in the adjusted predictions
         self.trends_corr = None  # The correlation of the trends (actual close vs. adj predictions)
         self.back_candles = back_candles  # The number of candles to look back for each period.
-        self.shuffle = shuffle  # Shuffle the data for training the model.
-        self.train_split = val_split  # The validation split used during training.
-        self.split_limit = None  # The split limit for training and testing data.
-        self.batch_size = batch_size  # The batch size for training the model.
-        self.epochs = epochs  # The number of epochs for training the model.
         self.seasonal_dec = None  # The seasonal decomposition
         self.keras_log = keras_log  # The keras log file
         self.keras_verbosity = keras_verbosity  # The keras verbosity level
@@ -286,7 +288,6 @@ class PricePredict():
         self.spread_analysis = {}  # Spread analysis against other tickers
         self.logger = None  # The mylogger for this object
 
-
         # Create a mylogger for this object.
         if logger is None:
             self.logger = logging.getLogger(__name__)
@@ -309,11 +310,9 @@ class PricePredict():
         # tf.get_logger().propagate = False
 
         # # Set the mylogger to stdout by default.
-        # if logger_file_path is None:
-        #     self.mylogger.addHandler(logging.StreamHandler(stream=sys.stdout))
-        # else:
-        #     self.mylogger.addHandler(logging.FileHandler(filename=logger_file_path))
-        #     tf.get_logger().addHandler(logging.FileHandler(filename=logger_file_path))
+        if logger_file_path is not None:
+            self.logger.addHandler(logging.FileHandler(filename=logger_file_path))
+            tf.get_logger().addHandler(logging.FileHandler(filename=logger_file_path))
 
         # Set the logging level.
         if log_level is None:
@@ -3375,6 +3374,7 @@ class PricePredict():
     def store_me(self) -> str:
         # Store this object into a compressed dill object *.dilz
         filepath = self.ppo_dir + f"{self.ticker}_{self.period}_{self.date_end}.dilz"
+        self.ppo_file = filepath
         with open(filepath, 'wb') as f:
             f.write(self.serialize_me())
         return filepath
