@@ -773,43 +773,23 @@ class Test_PricePredict(TestCase):
         # =========================================
 
     def test_train_model(self):
-        # Create an instance of the price prediction object
-        pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # Set the ticker and date range (what we want to pull from yahoo finance)
         ticker = "TSLA"
         start_date = "2020-01-01"
         end_date = "2023-12-31"
-
-        # # Load data from Yahoo Finance
-        # data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
-        # self.assertGreaterEqual(len(data), 1, "data: Wrong length")
-        # aug_data, features, targets, dates_data = pp.augment_data(data, features)
-        # self.assertEqual(19, features, "features: Wrong count")
-        # self.assertEqual(1042, len(dates_data), "dates_data: Wrong length")
-        # self.assertEqual(1043, len(aug_data), "aug_data: Wrong length")
-        #
-        # # Scale the data
-        # scaled_data, scaler = pp.scale_data(aug_data)
-        # self.assertEqual(1043, len(scaled_data), "scaled_data: Wrong length")
-        # self.assertIsNotNone(scaler, "scaler: Wrong length")
-        #
-        # # Prepare the scaled data for model inputs
-        # X, y = pp.prep_model_inputs(scaled_data, features)
-        # self.assertEqual(1043 - pp.back_candles, len(X), "X: Wrong length")
-        # self.assertEqual(1043 - pp.back_candles, len(y), "y: Wrong length")
-
-        # Load and prep data from Yahoo Finance
-        pp.ticker = ticker
-        X, y = pp._fetch_n_prep(pp.ticker, start_date, end_date,
-                                split_pcnt=0.2)
-        self.assertEqual(1028, len(X), "X: Wrong length")
-        self.assertEqual(1028, len(y), "y: Wrong length")
+        # Create an instance of the price prediction object
+        pp = PricePredict(ticker, model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # Train the model
         # Use a small batch size and epochs to test the model training
         pp.epochs = 10
         pp.batch_size = 5
+        # Load and prep data from Yahoo Finance
+        X, y = pp._fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.8)
+        self.assertEqual(1028, len(X), "X: Wrong length")
+        self.assertEqual(1028, len(y), "y: Wrong length")
+        # Train the model
         model, y_pred, mse = pp.train_model(X, y)
         pcnt_nan = (len(y_pred) - np.count_nonzero(~np.isnan(y_pred))) / len(y_pred)
         self.assertGreater(.8, pcnt_nan, f"y_pred: Most values are NaN [{pcnt_nan * 100}%]")
@@ -820,7 +800,6 @@ class Test_PricePredict(TestCase):
         self.assertEqual(206, len(y_pred), "y_pred: Wrong length")
         self.assertEqual(pp.PeriodDaily, pp.period, f"period[{pp.period}]: Wrong period")
         self.assertEqual(4, len(pp.model.layers), "model: Wrong number of model layers")
-
         # View the test prediction results
         time = datetime.now()
         time_str = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -832,36 +811,18 @@ class Test_PricePredict(TestCase):
         pp.plot_pred_results(close, None, None,
                              pred_close, pred_high, pred_low, title=title)
 
-        # Load data from Yahoo Finance
-        # data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
-        # self.assertGreaterEqual(len(data), 1, "data: Wrong length")
-        # aug_data, features, targets, dates_data = pp.augment_data(data, features)
-        # self.assertEqual(19, features, "features: Wrong count")
-        # self.assertEqual(1042, len(dates_data), "dates_data: Wrong length")
-        # self.assertEqual(1043, len(aug_data), "aug_data: Wrong length")
-        #
-        # # Scale the data
-        # scaled_data, scaler = pp.scale_data(aug_data)
-        # self.assertEqual(1043, len(scaled_data), "scaled_data: Wrong length")
-        # self.assertIsNotNone(scaler, "scaler: Wrong length")
-        #
-        # # Prepare the scaled data for model inputs
-        # X, y = pp.prep_model_inputs(scaled_data, features)
-        # self.assertEqual(1043 - pp.back_candles, len(X), "X: Wrong length")
-        # self.assertEqual(1043 - pp.back_candles, len(y), "y: Wrong length")
-
+        # Train the model with a 1 hidden layers
+        # Use a small batch size and epochs to test the model training
+        pp.ticker = ticker
+        pp.epochs = 200
+        pp.batch_size = 1024
+        pp.model = None
         # Load and prep data from Yahoo Finance
-        X, y = pp._fetch_n_prep(pp.ticker, start_date, end_date,
-                                split_pcnt=0.2)
+        X, y = pp._fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.2)
         self.assertEqual(1028, len(X), "X: Wrong length")
         self.assertEqual(1028, len(y), "y: Wrong length")
-
-        # Train the model with a 2 hidden layers
-        # Use a small batch size and epochs to test the model training
-        pp.epochs = 10
-        pp.batch_size = 5
-        pp.model = None
-        model, y_pred, mse = pp.train_model(X, y, hidden_layers=3, hidden_layer_units=[8, 16, 32])
+        # Train the model with hidden laysers
+        model, y_pred, mse = pp.train_model(X, y, hidden_layers=2, hidden_layer_units=[32, 64])
         self.assertGreater(len(y_pred), 1, "y_pred: Wrong length")
         pcnt_nan = (len(y_pred) - np.count_nonzero(~np.isnan(y_pred))) / len(y_pred)
         self.assertGreater(.8, pcnt_nan, f"y_pred: Most values are NaN [{pcnt_nan * 100}%]")
@@ -871,8 +832,7 @@ class Test_PricePredict(TestCase):
         self.assertIsNotNone(y_pred, "y_pred: is None")
         self.assertEqual(206, len(y_pred), "y_pred: Wrong length")
         self.assertEqual(pp.PeriodDaily, pp.period, f"period[{pp.period}]: Wrong period")
-        self.assertEqual(7, len(pp.model.layers), "model: Wrong number of model layers")
-
+        self.assertEqual(6, len(pp.model.layers), "model: Wrong number of model layers")
         # View the test prediction results
         time = datetime.now()
         time_str = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -883,37 +843,22 @@ class Test_PricePredict(TestCase):
         pred_low = pp.pred[:, 3]
         pp.plot_pred_results(close, None, None,
                              pred_close, pred_high, pred_low, title=title)
+
         # ==============================================================
         # Test a dataset with a Weekly period
         # ==============================================================
 
         # Create an instance of the price prediction object
-        pp = PricePredict(period='W', model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
 
         # Set the ticker and date range (what we want to pull from yahoo finance)
         ticker = "TSLA"
         start_date = "2015-01-01"
         end_date = "2023-12-31"
-
-        # Load data from Yahoo Finance
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, period=PricePredict.PeriodWeekly)
-        self.assertGreaterEqual(len(data), 1, "data: Wrong length")
-        aug_data, features, targets, dates_data = pp.augment_data(data, features)
-        self.assertEqual(19, features, "features: Wrong count")
-        self.assertEqual(470, len(dates_data), "dates_data: Wrong length")
-        # Added 1 period for the prediction
-        self.assertEqual(471, len(aug_data), "aug_data: Wrong length")
-
-        # Scale the data
-        scaled_data, scaler = pp.scale_data(aug_data)
-        self.assertEqual(471, len(scaled_data), "scaled_data: Wrong length")
-        self.assertIsNotNone(scaler, "scaler: Wrong length")
-
-        # Prepare the scaled data for model inputs
-        X, y = pp.prep_model_inputs(scaled_data, features)
+        pp = PricePredict(ticker, period='W', model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
+        # Load and prep data from Yahoo Finance
+        X, y = pp._fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.8)
         self.assertEqual(456, len(X), "X: Wrong length")
         self.assertEqual(456, len(y), "y: Wrong length")
-
         # Train the model
         # Use a small batch size and epochs to test the model training
         pp.epochs = 10
@@ -929,7 +874,6 @@ class Test_PricePredict(TestCase):
         self.assertEqual(92, len(y_pred), "y_pred: Wrong length")
         self.assertEqual(pp.PeriodWeekly, pp.period, f"period[{pp.period}]: Wrong period")
         self.assertEqual(4, len(pp.model.layers), "model: Wrong number of model layers")
-
         # View the test prediction results
         time = datetime.now()
         time_str = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -944,55 +888,75 @@ class Test_PricePredict(TestCase):
         # Create an instance of the price prediction object
         pp = PricePredict(model_dir='../models/',
                           chart_dir='../charts/', preds_dir='../predictions/',
-                          verbose=False, logger=self.logger, log_level=logging.INFO)
+                          verbose=False, logger=self.logger, log_level=logging.ERROR)
 
         # Load data from Yahoo Finance
         ticker = "IBM"
         start_date = "2020-01-01"
         end_date = "2023-12-31"
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
-        self.assertGreaterEqual(len(data), 1, "data: Wrong length")
+        # Load and prep data from Yahoo Finance
+        pp.ticker = ticker
+        X, y = pp._fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.8)
+        self.assertEqual(1028, len(X), "X: Wrong length")
+        self.assertEqual(1028, len(y), "y: Wrong length")
 
-        # Augment the data with additional indicators/features
-        aug_data, features, targets, dates_data = pp.augment_data(data, features)
-        self.assertEqual(features, 19, "features: Wrong count")
-        self.assertEqual(1042, len(dates_data), "dates_data: Wrong length")
-        self.assertEqual(1043, len(aug_data), "aug_data: Wrong length")
-
-        # Scale the data so the model can use it more effectively
-        scaled_data, scaler = pp.scale_data(aug_data)
-        self.assertEqual(1043, len(scaled_data), "scaled_data: Wrong length")
-        self.assertIsNotNone(scaler, "scaler: Wrong length")
-
-        # Prepare the scaled data for model inputs
-        X, y = pp.prep_model_inputs(scaled_data, features)
-        self.assertEqual(1043 - pp.back_candles, len(X), "X: Wrong length")
-        self.assertEqual(1043 - pp.back_candles, len(y), "y: Wrong length")
-
-        # Use a small batch size and epochs to test the model training
-        pp.epochs = 3
-        pp.batch_size = 1
         # Train the model
         model, y_pred, mse = pp.train_model(X, y)
         self.assertIsNotNone(model, "model: Wrong length")
 
         # Perform Bayesian optimization
-        # - Test Parameters shorten the time to run the test
+        # - Test with only a few Parameters
+        pp.model = None
+        pp.bayes_opt_hypers = None
         pp.bayesian_optimization(X, y,
+                                 # Reduced settings for testing
+                                 opt_max_init=5,
+                                 opt_max_iter=10,
+                                 # pb_lstm_units=(32, 256),
+                                 pb_lstm_dropout=(0.1, 0.5),
+                                 pb_adam_learning_rate=(0.001, 0.1),
+                                 pb_epochs=(3, 10),
+                                 pb_batch_size=(1, 1024),
+                                 # pb_hidden_layers=(0, 1),
+                                 # pb_hidden_layer_units_1=(16, 256),
+                                 # pb_hidden_layer_units_2=(32, 256),
+                                 # pb_hidden_layer_units_3=(64, 256),
+                                 # pb_hidden_layer_units_4=(128, 256))
+                                 )
+        self.assertIsNotNone(pp.bayes_opt_hypers['params'], "bayes_opt_hypers['params']: Shoud not be None")
+
+        time = datetime.now()
+        time_str = time.strftime('%Y-%m-%d %H:%M:%S')
+        title = f"test_bayes_opt some params: {ticker} --  Period {pp.period}  {time_str}"
+        pred_close = pp.pred[:, 1]
+        pred_high = pp.pred[:, 2]
+        pred_low = pp.pred[:, 3]
+        pp.plot_pred_results(pp.target_close, pp.target_high, pp.target_low,
+                             pred_close, pred_high, pred_low, title=title)
+
+        # Perform Bayesian optimization
+        # - Test with all Parameters and 1 2 and 3 hidden layers
+        pp.model = None
+        pp.bayes_opt_hypers = None
+        pp.bayesian_optimization(X, y,
+                                 # Reduced settings for testing
+                                 opt_max_init=5,
+                                 opt_max_iter=10,
                                  pb_lstm_units=(32, 256),
                                  pb_lstm_dropout=(0.1, 0.5),
                                  pb_adam_learning_rate=(0.001, 0.1),
-                                 pb_epochs=(20, 400),
+                                 pb_epochs=(100, 300),
                                  pb_batch_size=(1, 1024),
-                                 pb_hidden_layers=(0, 4),
+                                 pb_hidden_layers=(1, 4),
                                  pb_hidden_layer_units_1=(16, 256),
                                  pb_hidden_layer_units_2=(32, 256),
                                  pb_hidden_layer_units_3=(64, 256),
                                  pb_hidden_layer_units_4=(128, 256))
+        self.assertIsNotNone(pp.bayes_opt_hypers['params'], "bayes_opt_hypers['params']: Shoud not be None")
 
         time = datetime.now()
         time_str = time.strftime('%Y-%m-%d %H:%M:%S')
-        title = f"test_bayes_opt: {ticker} --  Period {pp.period}  {time_str}"
+        title = f"test_bayes_opt all params: {ticker} --  Period {pp.period}  {time_str}"
         pred_close = pp.pred[:, 1]
         pred_high = pp.pred[:, 2]
         pred_low = pp.pred[:, 3]
@@ -1256,7 +1220,7 @@ class Test_PricePredict(TestCase):
         # View the test prediction results
         time = datetime.now()
         time_str = time.strftime('%Y-%m-%d %H:%M:%S')
-        title = f"test_train_model: {ticker} -- Period {pp.period} {time_str}"
+        title = f"test_fetch_train_and_predict: {ticker} -- Period {pp.period} {time_str}"
         pp.plot_pred_results(pp.target_close[-len(pp.adj_pred_close)+2:], None, None,
                              pp.adj_pred_close, pp.adj_pred_high, pp.adj_pred_low,
                              title=title)
@@ -1295,7 +1259,7 @@ class Test_PricePredict(TestCase):
         # View the test prediction results
         time = datetime.now()
         time_str = time.strftime('%Y-%m-%d %H:%M:%S')
-        title = f"test_train_model: {ticker} -- Period {pp.period} {time_str}"
+        title = f"test_fetch_and_predict: {ticker} -- Period {pp.period} {time_str}"
         pp.plot_pred_results(pp.target_close, pp.pred_close, pp.adj_pred_close,
                              adj_pred_close, adj_pred_high, adj_pred_low,
                              title=title)
@@ -1350,7 +1314,7 @@ class Test_PricePredict(TestCase):
         # View the test prediction results
         time = datetime.now()
         time_str = time.strftime('%Y-%m-%d %H:%M:%S')
-        title = f"test_train_model: {ticker} -- Period {pp.period} {time_str}"
+        title = f"test_prediction_analysis: {ticker} -- Period {pp.period} {time_str}"
         pp.plot_pred_results(pp.target_close, pp.target_high, pp.target_low,
                     pp.adj_pred_close, pp.adj_pred_high, pp.adj_pred_low,
                     title=title)

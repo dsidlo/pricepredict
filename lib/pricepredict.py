@@ -102,7 +102,7 @@ class DataCache():
         self.data_scaled: list[Decimal] = []
         self.target_cnt: int = None
         self.dates_data: str = ''
-        self.split_pcnt: Decimal = None
+        self.train_split: Decimal = None
         self.X: list[Decimal] = []
         self.y: list[Decimal] = []
 
@@ -150,7 +150,7 @@ class PricePredict():
                  preds_dir='./predictions/',  # The directory where the predictions are saved
                  period=PeriodDaily,  # The period for the data (D, W)
                  back_candles=15,  # The number of candles to look back for each period.
-                 split_pcnt=0.8,  # The value for splitting data into training and testing.
+                 train_split=0.8,  # The value for splitting data into training and testing.
                  batch_size=30,  # The batch size for training the model.
                  epochs=50,  # The number of epochs for training the model.
                  lstm_units=256,  # The current models units/neurons
@@ -179,7 +179,7 @@ class PricePredict():
         And there are methods to output a chart of the prediction.
         :param model_dir:
         :param back_candles:
-        :param split_pcnt:
+        :param train_split:
         :param batch_size:
         :param epochs:
         :param shuffle:
@@ -199,16 +199,7 @@ class PricePredict():
         # ---- Bayesian Optimization ----
         self.bayes_best_loss = None  # The best loss from the bayesian optimization
         self.bayes_best_model = None  # The best bayesian optimized model, temp holder.
-        self.bayes_opt_hypers = {}  # The optimized hyperparameters
-        # ---- Model Optimized Hyperparameters ----
-        self.hp_lstm_units = lstm_units  # The current models units/neurons
-        self.hp_lstm_dropout = lstm_dropout  # The current models dropout
-        self.hp_epochs = None  # The current models epochs
-        self.hp_batch_size = None  # The current models batch size
-        self.hp_hidden_layers = None  # The hidden layers for the model
-        self.hp_hidden_layer_units = None  # The current models hidden units/neurons
-        # ----
-        self.hp_adam_learning_rate = None  # The current models learning rate
+        self.bayes_opt_hypers = {}  # The optimized hyperparameters in ['max'] and other data.
         self.scaler = None  # The current models scaler
         self.verbose = verbose  # Print debug information
         self.ticker = ticker  # The ticker for the data
@@ -1215,7 +1206,7 @@ class PricePredict():
 
         # Load training data and prepare the data
         X, y = self._fetch_n_prep(symbol, dateStart_, dateEnd_,
-                                  period=period, split_pcnt=1)
+                                  period=period, train_split=1)
 
         # Store the date data as a strings so that pydantic can serialize it.
         # It does not do a proper job if the date is a datetime object.
@@ -1277,7 +1268,7 @@ class PricePredict():
             self.dateStart_train = tc.dateStart
             self.dateEnd_train = tc.dateEnd
             self.period = tc.period
-            self.split_pcnt = tc.split_pcnt
+            self.train_split = tc.train_split
             self.orig_data = pd.read_json(StringIO(tc.data))
             self.features = tc.feature_cnt
             self.data_scaled = np.array(tc.data_scaled)
@@ -1337,7 +1328,7 @@ class PricePredict():
             return
 
         # Make Predictions on all the data
-        self.split_pcnt = 1.0
+        self.train_split = 1.0
         # Perform the prediction
         # This call will also save_plot the prediction data to this object.
         self.predict_price(self.X)
@@ -1483,41 +1474,46 @@ class PricePredict():
 
         self.logger.debug(f"=== Training Model [{self.ticker}:{self.period}]...")
 
-        # Handle the hyperparameters
+        # Get Hyperparameters from last Bayesian optimization, if available.
+        if self.bayes_opt_hypers is not None and 'params' in self.bayes_opt_hypers:
+            if batch_size is None:
+                if 'batch_size' in self.bayes_opt_hypers['params']:
+                    batch_size = int(round(self.bayes_opt_hypers['params']['batch_size']))
+            if epochs is None:
+                if 'epochs' in self.bayes_opt_hypers['params']:
+                    epochs = int(round(self.bayes_opt_hypers['params']['epochs']))
+            if lstm_units is None:
+                if 'lstm_units' in self.bayes_opt_hypers['params']:
+                    lstm_units = int(round(self.bayes_opt_hypers['params']['lstm_units']))
+            if lstm_dropout is None:
+                if 'lstm_dropout' in self.bayes_opt_hypers['params']:
+                    lstm_dropout = self.bayes_opt_hypers['params']['lstm_dropout']
+            if adam_learning_rate is None:
+                if 'adam_learning_rate' in self.bayes_opt_hypers['params']:
+                    adam_learning_rate = self.bayes_opt_hypers['params']['adam_learning_rate']
+            if hidden_layers is None:
+                if 'hidden_layers' in self.bayes_opt_hypers['params']:
+                    hidden_layers = int(round(self.bayes_opt_hypers['params']['hidden_layers']))
+            if hidden_layer_units is None:
+                hul_arry = ['hidden_layer_units_0', 'hidden_layer_units_1', 'hidden_layer_units_2',]
+                hidden_layer_units = []
+                for i in range(hidden_layers):
+                    if hul_arry[i] in self.bayes_opt_hypers['params']:
+                        hidden_layer_units.append(int(round(self.bayes_opt_hypers['params'][hul_arry[i]])))
+
+        # If the hyperparameters are still None, then set them to the default values.
         if batch_size is None:
-            if self.hp_batch_size is not None:
-                batch_size = self.hp_batch_size
-            else:
-                batch_size = 32
+            batch_size = 128
         if epochs is None:
-            if self.hp_epochs is not None:
-                epochs = self.hp_epochs
-            else:
-                epochs = 100
+            epochs = 100
         if lstm_units is None:
-            if self.hp_lstm_units is not None:
-                lstm_units = self.hp_lstm_units
-            else:
-                lstm_units = 200
+            lstm_units = 200
         if lstm_dropout is None:
-            if self.hp_lstm_dropout is not None:
-                lstm_dropout = self.hp_lstm_dropout
-            else:
-                lstm_dropout = 0.2
+            lstm_dropout = 0.2
         if adam_learning_rate is None:
-            if self.hp_adam_learning_rate is not None:
-                adam_learning_rate = self.hp_adam_learning_rate
-            else:
-                adam_learning_rate = 0.035
-        if hidden_layers is None:
-            if self.hp_hidden_layers is not None:
-                hidden_layers = self.hp_hidden_layers
-            else:
+            adam_learning_rate = 0.035
+        if hidden_layers is None or hidden_layers == 0:
                 hidden_layers = 0
-        if hidden_layer_units is None:
-            if self.hp_hidden_layer_units is not None:
-                hidden_layer_units = self.hp_hidden_layer_units
-            else:
                 hidden_layer_units = []
 
         # Handle the optional parameters
@@ -1544,9 +1540,6 @@ class PricePredict():
         X_train, X_test = X[:split_limit], X[split_limit:]  # Training data, Test Data
         y_train, y_test = y[:split_limit], y[split_limit:]  # Training data, Test Data
 
-        if hidden_layer_units is None:
-            hidden_layer_units = []
-
         if len(hidden_layer_units) != hidden_layers:
             e_txt = (f"Error: Ticker[{self.ticker}:{self.period}] Hidden layers [{hidden_layers}]"
                      + f" and hidden_layer_units [{len(hidden_layer_units)}] do not match.")
@@ -1565,19 +1558,27 @@ class PricePredict():
         if self.model is None:
             self.logger.debug("Creating a new model...")
             lstm_input = Input(shape=(backcandles, feature_cnt), name='lstm_input')
-            inputs = LSTM(lstm_units, return_sequences=(hidden_layers > 1),
-                          name='first_layer', dropout=lstm_dropout)(lstm_input)
+            return_seq = hidden_layers > 1
+            inputs = LSTM(lstm_units, return_sequences=return_seq,
+                          name='lstm_layer_0', dropout=lstm_dropout)(lstm_input)
+            # inputs = LSTM(lstm_units, name='lstm_layer_0', return_sequences=return_seq)(lstm_input)
+            self.logger.debug(f'\nAdded LSTM Layer: 0  Units: {lstm_units}  Return Seq: {return_seq}')
             # Add LSTM layers hidden layers, as needed
-            for i in range(1, hidden_layers + 1):
-                # For all but the last layer, return full sequence
-                return_seq = i < hidden_layers
-                inputs = LSTM(hidden_layer_units[i - 1], return_sequences=return_seq,
-                              name=f'lstm_layer_{i + 1}', dropout=lstm_dropout)(inputs)
+            # - When there is only 1 LSTM Layer set return_seq to False.
+            # - When we add hidden LSTM Layers, set return_seq to True for all but the last layer.
+            for i in range(0, hidden_layers):
+                # Only the last layer set set to False
+                return_seq = (i + 1) < hidden_layers
+                units = hidden_layer_units[i]
+                inputs = LSTM(units, return_sequences=return_seq,
+                                  name=f'lstm_hidden_{i}', dropout=lstm_dropout)(inputs)
+                self.logger.debug(f'Added LSTM Layer: {i}  Units: {units}  Return Seq: {return_seq}')
             inputs = Dense(self.targets, name='dense_layer')(inputs)
             output = Activation('linear', name='output')(inputs)
             model = Model(inputs=lstm_input, outputs=output)
             adam = optimizers.Adam(learning_rate=adam_learning_rate)
             model.compile(optimizer=adam, loss='mse')
+            self.logger.debug(f'Created new model: {model.summary()}')
         else:
             self.logger.debug("Using existing self.model...")
             model = self.model
@@ -1638,14 +1639,15 @@ class PricePredict():
         return model, y_pred, mse
 
     def bayes_train_model(self, X, y,
-                          split_pcnt: float = 0.8, backcandles: int = None,
+                          train_split: float = 0.8, backcandles: int = 15,
                           shuffle: bool = True, validation_split: float = 0.2,
-                          lstm_units: int = None,
-                          lstm_dropout: float = None,
-                          adam_learning_rate: float = None,
-                          epochs: int = None,
-                          batch_size: int = None,
-                          hidden_layers: int = None,
+                          # --- Hyperparameters
+                          lstm_units: int = 256,
+                          lstm_dropout: float = 0.2,
+                          adam_learning_rate: float = 0.035,
+                          epochs: int = 100,
+                          batch_size: int = 128,
+                          hidden_layers: int = 0,
                           hidden_layer_units: [int] = None):
         """
         Train the model.
@@ -1655,7 +1657,7 @@ class PricePredict():
 
         :param X:
         :param y:
-        :param split_pcnt:
+        :param train_split:
         :param backcandles:
         :param shuffle:
         :param validation_split:
@@ -1671,43 +1673,70 @@ class PricePredict():
         :return:
         """
 
-        self.logger.debug(f"=== Training Model [{self.ticker}:{self.period}]...")
-        self.logger.debug(f"Split Percentage: {split_pcnt}  Back Candles: {backcandles}")
-        self.logger.debug(f"Shuffle: {shuffle}  Validation Split: {validation_split}")
-        self.logger.debug(f"LSTM Units: {lstm_units}  LSTM Dropout: {lstm_dropout}")
-        self.logger.debug(f"Adam Learning Rate: {adam_learning_rate}")
-        self.logger.debug(f"Epochs: {epochs}  Batch Size: {batch_size}")
-        self.logger.debug(f"Hidden Layers: {hidden_layers}  Hidden Layer Units: {hidden_layer_units}")
-        self.logger.debug(f"-----------------------------------------------------------------")
-        # Handle the optional parameters
-        if split_pcnt is None:
-            split_pcnt = self.split_pcnt
-        splitlimit = int(len(X) * split_pcnt)
+        # Convert int hyperparameters to int
+        # as the optimizer passes them as floats.
+        lstm_units = int(lstm_units)
+        epochs = int(epochs)
+        batch_size = int(batch_size)
+        hidden_layers = int(hidden_layers)
+        hidden_layer_units = [int(hlu) for hlu in hidden_layer_units]
 
-        self.split_limit = splitlimit
+        # self.logger.debug(f"=== Training Model [{self.ticker}:{self.period}]...")
+        # self.logger.debug(f"Split Percentage: {train_split}  Back Candles: {backcandles}")
+        # self.logger.debug(f"Shuffle: {shuffle}  Validation Split: {validation_split}")
+        # self.logger.debug(f"LSTM Units: {lstm_units}  LSTM Dropout: {lstm_dropout}")
+        # self.logger.debug(f"Adam Learning Rate: {adam_learning_rate}")
+        # self.logger.debug(f"Epochs: {epochs}  Batch Size: {batch_size}")
+        self.logger.debug(f"Hidden Layers: {hidden_layers}  Hidden Layer Units: {hidden_layer_units}")
+        # self.logger.debug(f"-----------------------------------------------------------------")
+        # Handle the optional parameters
+        if train_split is None:
+            train_split = self.train_split
+        split_limit = int(len(X) * train_split)
+
+        self.split_limit = split_limit
         if backcandles is None:
             backcandles = self.back_candles
 
         data_set = self.data_scaled
         feature_cnt = self.features
 
-        self.logger.debug("Creating a new model...")
+        # self.logger.debug("Creating a new model...")
+
+        if hidden_layers is None or hidden_layers == 0:
+            hidden_layers = 0
+            hidden_layer_units = []
+
         lstm_input = Input(shape=(backcandles, feature_cnt), name='lstm_input')
-        inputs = LSTM(int(lstm_units), return_sequences=(hidden_layers > 1),
-                      name='first_layer', dropout=lstm_dropout)(lstm_input)
-        # Add additional LSTM layers hidden layers, as needed
-        for i in range(1, hidden_layers):
-            # For all but the last layer, return full sequence
-            return_seq = i < (hidden_layers - 1)
-            inputs = LSTM(hidden_layer_units[i - 1], return_sequences=return_seq,
-                          name=f'lstm_layer_{i + 1}', dropout=lstm_dropout)(inputs)
+        return_seq = hidden_layers >= 1
+        inputs = LSTM(lstm_units, return_sequences=return_seq,
+                      name='lstm_layer_0', dropout=lstm_dropout)(lstm_input)
+
+        # Add LSTM layers hidden layers, as needed
+        i = None
+        units = None
+        return_seq = None
+        try:
+            for i in range(0, hidden_layers):
+                # Only the last layer set set to False
+                return_seq = (i + 1) < hidden_layers
+                units = hidden_layer_units[i]
+                inputs = LSTM(units, return_sequences=return_seq,
+                              name=f'lstm_hidden_{i}', dropout=lstm_dropout)(inputs)
+                self.logger.debug(f'Added LSTM Layer: {i}  Units: {units}  Return Seq: {return_seq}')
+        except Exception as e:
+            e_txt = f"Error: Ticker[{self.ticker}:{self.period}] Adding Hidden layer [{i}] units [{units}] return_seq [{return_seq}].\n{e}"
+            self.logger.error(e_txt)
+            raise ValueError(e_txt)
+
         inputs = Dense(self.targets, name='dense_layer')(inputs)
         output = Activation('linear', name='output')(inputs)
         model = Model(inputs=lstm_input, outputs=output)
         adam = optimizers.Adam(learning_rate=adam_learning_rate)
         model.compile(optimizer=adam, loss='mse')
+        self.logger.debug(f'Created new model: {model.summary()}')
 
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=splitlimit, random_state=42)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=split_limit, random_state=42)
         # Callback: Define the CSV mylogger
         csv_logger = CSVLogger('PricePred_keras_training_log.csv')
         # Callback: Early Stopping
@@ -1747,43 +1776,51 @@ class PricePredict():
 
     def bayesian_optimization(self, X, y,
                               # Hyperparameter Ranges
-                              pb_lstm_units=(32, 256),
-                              pb_lstm_dropout=(0.1, 0.5),
-                              pb_adam_learning_rate=(0.001, 0.1),
-                              pb_epochs=(5, 300),
-                              pb_batch_size=(16, 128),
-                              pb_hidden_layers=(0, 4),
-                              pb_hidden_layer_units_1=(16, 256),
-                              pb_hidden_layer_units_2=(16, 256),
-                              pb_hidden_layer_units_3=(16, 256),
-                              pb_hidden_layer_units_4=(16, 256),
-                              opt_csv=None):
+                              pb_lstm_units: tuple = None,            # Default 256
+                              pb_lstm_dropout: tuple = None,          # Default 0.5
+                              pb_adam_learning_rate: tuple = None,    # Default 0.035
+                              pb_epochs: tuple = None,                # Default 300
+                              pb_batch_size: tuple = None,            # Default 128
+                              pb_hidden_layers: tuple = None,         # Default None or 0
+                              pb_hidden_layer_units_1: tuple = None,  # Default None
+                              pb_hidden_layer_units_2: tuple = None,  # Default None
+                              pb_hidden_layer_units_3: tuple = None,  # Default None
+                              pb_hidden_layer_units_4: tuple = None,  # Default None
+                              opt_max_init = 10,
+                              opt_max_iter = 20,
+                              opt_csv=None,                  # File to save the optimization results
+                              ):
         """
         Perform Bayesian Optimization on the model.
         """
 
         # =======================================================================
         # === This is the inner function where we try various hyperparameters ===
-        def optimize_model(lstm_units: int = None,
-                           lstm_dropout: float = None,
-                           adam_learning_rate: float = None,
-                           epochs: int = None,
-                           batch_size: int = None,
-                           hidden_layers: int = None,
+        def optimize_model(lstm_units: int = 200,
+                           lstm_dropout: float = 0.2,
+                           adam_learning_rate: float = 0.635,
+                           epochs: int = 100,
+                           batch_size: int = 32,
+                           hidden_layers: int = 0,
                            hidden_layer_units_1: int = None,
                            hidden_layer_units_2: int = None,
                            hidden_layer_units_3: int = None,
                            hidden_layer_units_4: int = None):
 
-            hidden_layer_units = None
+            # Force the hidden_layers for testing here...
+            # hidden_layers = 4
+
+            # Round up and intify integer parameters.
+            # Setup the hidden_layer_units list
+            hidden_layer_units = []
             if hidden_layer_units_1 is not None:
-                hidden_layer_units = [int(hidden_layer_units_1)]
+                hidden_layer_units = [int(round(hidden_layer_units_1))]
             if hidden_layer_units_2 is not None:
-                hidden_layer_units.append(int(hidden_layer_units_2))
+                hidden_layer_units.append(int(round(hidden_layer_units_2)))
             if hidden_layer_units_3 is not None:
-                hidden_layer_units.append(int(hidden_layer_units_3))
+                hidden_layer_units.append(int(round(hidden_layer_units_3)))
             if hidden_layer_units_4 is not None:
-                hidden_layer_units.append(int(hidden_layer_units_4))
+                hidden_layer_units.append(int(round(hidden_layer_units_4)))
             if hidden_layers is not None and hidden_layer_units is not None:
                 # Truncate the hidden_layer_units list to the number of hidden_layers.
                 hidden_layer_units = hidden_layer_units[:int(hidden_layers)]
@@ -1803,32 +1840,49 @@ class PricePredict():
         # === End of the function to optimize ===
         # ======================================================
 
-        optimizer = BayesianOptimization(f=optimize_model,
-                                         pbounds={'lstm_units': pb_lstm_units,
-                                                  'lstm_dropout': pb_lstm_dropout,
-                                                  'adam_learning_rate': pb_adam_learning_rate,
-                                                  'epochs': pb_epochs,
-                                                  'batch_size': pb_batch_size,
-                                                  'hidden_layers': pb_hidden_layers,
-                                                  'hidden_layer_units_1': pb_hidden_layer_units_1,
-                                                  'hidden_layer_units_2': pb_hidden_layer_units_2,
-                                                  'hidden_layer_units_3': pb_hidden_layer_units_3,
-                                                  'hidden_layer_units_4': pb_hidden_layer_units_4})
+        # Build Huperparameter's dictionary
+        pbounds_dict: {tuple} = {}
+        if pb_lstm_units is not None:
+            pbounds_dict['lstm_units'] = pb_lstm_units
+        if pb_lstm_dropout is not None:
+            pbounds_dict['lstm_dropout'] = pb_lstm_dropout
+        if pb_adam_learning_rate is not None:
+            pbounds_dict['adam_learning_rate'] = pb_adam_learning_rate
+        if pb_epochs is not None:
+            pbounds_dict['epochs'] = pb_epochs
+        if pb_batch_size is not None:
+            pbounds_dict['batch_size'] = pb_batch_size
+        if pb_hidden_layers is not None:
+            pbounds_dict['hidden_layers'] = pb_hidden_layers
+        if pb_hidden_layer_units_1 is not None:
+            pbounds_dict['hidden_layer_units_1'] = pb_hidden_layer_units_1
+        if pb_hidden_layer_units_2 is not None:
+            pbounds_dict['hidden_layer_units_2'] = pb_hidden_layer_units_2
+        if pb_hidden_layer_units_3 is not None:
+            pbounds_dict['hidden_layer_units_3'] = pb_hidden_layer_units_3
+        if pb_hidden_layer_units_4 is not None:
+            pbounds_dict['hidden_layer_units_4'] = pb_hidden_layer_units_4
 
-        optimizer.maximize(init_points=10, n_iter=20)
+        # _pbounds_dict = {'lstm_units': pb_lstm_units,
+        #                  'lstm_dropout': pb_lstm_dropout,
+        #                  'adam_learning_rate': pb_adam_learning_rate,
+        #                  'epochs': pb_epochs,
+        #                  'batch_size': pb_batch_size,
+        #                  'hidden_layers': pb_hidden_layers,
+        #                  'hidden_layer_units_1': pb_hidden_layer_units_1,
+        #                  'hidden_layer_units_2': pb_hidden_layer_units_2,
+        #                  'hidden_layer_units_3': pb_hidden_layer_units_3,
+        #                  'hidden_layer_units_4': pb_hidden_layer_units_4}
+        # # Remove parameters that were not defined.
+        # pbounds_dict: {tuple} = {k: v for k, v in _pbounds_dict.items() if v is not None or type(v) is tuple}
 
-        # Save the best parameters
+        # Prepare the Bayesian Optimization
+        optimizer = BayesianOptimization(f=optimize_model, pbounds=pbounds_dict)
+        # Optimize...
+        optimizer.maximize(init_points=opt_max_init, n_iter=opt_max_iter)
+
+        # Save the best hyperparameters to self...
         self.bayes_opt_hypers = optimizer.max
-        self.hp_lstm_dropout = optimizer.max['params']['lstm_dropout']
-        self.hp_lstm_units = optimizer.max['params']['lstm_units']
-        self.hp_adam_learning_rate = optimizer.max['params']['adam_learning_rate']
-        self.hp_epochs = optimizer.max['params']['epochs']
-        self.hp_batch_size = optimizer.max['params']['batch_size']
-        self.hp_hidden_layers = optimizer.max['params']['hidden_layers']
-        self.hp_hidden_layer_units = [optimizer.max['params']['hidden_layer_units_1'],
-                                      optimizer.max['params']['hidden_layer_units_2'],
-                                      optimizer.max['params']['hidden_layer_units_3'],
-                                      optimizer.max['params']['hidden_layer_units_4']]
 
         self.logger.debug(f"Ticker: [{self.ticker}:{self.period}] Bayesian Optimization: {optimizer.max}")
 
@@ -1837,8 +1891,12 @@ class PricePredict():
         # Clear the saved model to reduce this object's pickle size
         self.bayes_best_model = None
         # Save out eh best model
-        self.save_model(model=self.model, ticker=self.ticker)
-
+        if self.model is not None:
+            self.save_model(model=self.model, ticker=self.ticker)
+        else:
+            e_txt = f"Error: Ticker[{self.ticker}] Bayesian Optimization failed to find a model."
+            self.logger.error(e_txt)
+            raise ValueError(e_txt)
         # Run the last best prediction
         self.predict_price(self.X)
         # Restore the scale of the prediction
@@ -1974,7 +2032,7 @@ class PricePredict():
         if X_data is None:
             # Load training data and prepare the data
             X, y = self._fetch_n_prep(self.ticker, start_date, end_date,
-                                      split_pcnt=0)
+                                      train_split=0)
             X_data = X
             # Get a list of the actual closing prices for the test period.
             closes = np.array(self.orig_data['Adj Close'])[:len(X) - 1]
@@ -1987,7 +2045,7 @@ class PricePredict():
             self.target_high = highs
             self.target_low = lows
             # Make Predictions on all the data
-            self.split_pcnt = 1.0
+            self.train_split = 1.0
 
         # By this point we should have the X_data to make the prediction.
         # But check to make sure.
@@ -2005,7 +2063,7 @@ class PricePredict():
             return None
         else:  # try's else
             # if self.split_limit is None:
-            #     self.split_limit = int(len(X_data) * self.split_pcnt)
+            #     self.split_limit = int(len(X_data) * self.train_split)
             self.split_limit = int(len(X_data) * self.train_split)
 
             # Rescaled the predicted values to dollars...
@@ -2149,7 +2207,7 @@ class PricePredict():
             self.logger.error("Error: self.adj_pred is empty. Prior prediction is required.")
             raise ValueError("Error: self.adj_pred is empty. Prior prediction is required.")
 
-        split_limit = int(len(self.date_data) * self.split_pcnt)
+        split_limit = int(len(self.date_data) * self.train_split)
         self.split_limit = split_limit
 
         # Createe a dataframe of the data for plt_test_usd, with a datetime index...
@@ -2396,7 +2454,7 @@ class PricePredict():
         return file_paths
 
     def _fetch_n_prep(self, ticker: str, date_start: str, date_end: str,
-                      period: str = None, split_pcnt: float = 0.05,
+                      period: str = None, train_split: float = 0.05,
                       backcandles: bool = None):
 
         # Handle the optional parameters
@@ -2407,10 +2465,10 @@ class PricePredict():
                 self.logger.error(f"period[{period}]: may only be \"{'", "'.join(PricePredict.PeriodValues)}\"")
                 raise ValueError(f"period[{period}]: may only be \"{'", "'.join(PricePredict.PeriodValues)}\"")
             self.period = period
-        if split_pcnt is None:
-            split_pcnt = self.split_pcnt
+        if train_split is None:
+            train_split = self.train_split
         else:
-            self.split_pcnt = split_pcnt
+            self.train_split = train_split
         if backcandles is None:
             backcandles = self.back_candles
         else:
@@ -2426,7 +2484,7 @@ class PricePredict():
         X, y = self.prep_model_inputs(scaled_data, features)
 
         # Training split the X & y data into training and testing data
-        splitlimit = int(len(X) * split_pcnt)
+        splitlimit = int(len(X) * train_split)
         self.split_limit = splitlimit
 
         # mylogger.info("lenX:",len(X), "splitLimit:",splitlimit)
@@ -2476,7 +2534,7 @@ class PricePredict():
                                 train_date_start, train_date_end,
                                 pred_date_start, pred_date_end,
                                 force_training=False,
-                                period=None, split_pcnt=None, backcandles=None,
+                                period=None, train_split=None, backcandles=None,
                                 use_curr_model=True, save_model=False):
         """
         Train and test the model.
@@ -2491,7 +2549,7 @@ class PricePredict():
 
         Optional Parameters:
         :param period=None:      # The period of the data, daily or weekly
-        :param split_pcnt=None:  # The percentage of the data to use for training
+        :param train_split=None:  # The percentage of the data to use for training
         :param backcandles=None: # The number of candles to look back for each period
         :param save_model=False: # Save the model if True, and force training
 
@@ -2515,10 +2573,10 @@ class PricePredict():
                 self.logger.error(f"period[{period} is invalid. Must be \"{'", "'.join(PricePredict.PeriodValues)}\"")
                 raise ValueError(f"period[{period}]: may only be \"{'", "'.join(PricePredict.PeriodValues)}\"")
             self.period = period
-        if split_pcnt is None:
-            split_pcnt = self.split_pcnt
+        if train_split is None:
+            train_split = self.train_split
         else:
-            self.split_pcnt = split_pcnt
+            self.train_split = train_split
         if backcandles is None:
             backcandles = self.back_candles
         else:
@@ -2542,14 +2600,14 @@ class PricePredict():
         if model is None:
             # Load training data and prepare the data
             X, y = self._fetch_n_prep(ticker, train_date_start, train_date_end,
-                                      period=period, split_pcnt=0)
+                                      period=period, train_split=0)
 
             # ============== Train the model
             # Use a small batch size and epochs to test the model training
             # Training split the X & y data into training and testing data
             # What is returned is the model, the prediction, and the mean squared error.
             model, y_pred, mse = self.train_model(X, y,
-                                                  split_pcnt=split_pcnt, backcandles=backcandles)
+                                                  train_split=train_split, backcandles=backcandles)
 
             if len(y_pred) != 0:
                 pcnt_nan = (len(y_pred) - np.count_nonzero(~np.isnan(y_pred))) / len(y_pred)
