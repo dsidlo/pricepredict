@@ -1235,8 +1235,8 @@ class PricePredict():
 
         # Allways pull data for seasonality decomposition.
         # Load training data and prepare the data
-        X, y = self._fetch_n_prep(symbol, dateStart_, dateEnd_,
-                                  period=period)
+        X, y = self.fetch_n_prep(symbol, dateStart_, dateEnd_,
+                                 period=period)
 
         # Store the date data as a strings so that pydantic can serialize it.
         # It does not do a proper job if the date is a datetime object.
@@ -1293,8 +1293,8 @@ class PricePredict():
         # Load the data
 
         # Load training data and prepare the data
-        X, y = self._fetch_n_prep(symbol, dateStart_, dateEnd_,
-                                  period=period, train_split=1)
+        X, y = self.fetch_n_prep(symbol, dateStart_, dateEnd_,
+                                 period=period, train_split=1)
 
         # Store the date data as a strings so that pydantic can serialize it.
         # It does not do a proper job if the date is a datetime object.
@@ -2155,8 +2155,8 @@ class PricePredict():
 
         if X_data is None:
             # Load training data and prepare the data
-            X, y = self._fetch_n_prep(self.ticker, start_date, end_date,
-                                      train_split=0)
+            X, y = self.fetch_n_prep(self.ticker, start_date, end_date,
+                                     train_split=0)
             X_data = X
             # Get a list of the actual closing prices for the test period.
             closes = np.array(self.orig_data['Adj Close'])[:len(X) - 1]
@@ -2239,6 +2239,8 @@ class PricePredict():
         than pining the prediction to the prior predicted value.
         This results in predictions that do not wander from the actual price action.
 
+        Updates self.adj_pred with the adjusted predictions.
+
         :return y_p_adj,     # The adjusted prediction
                 y_p_delta:   # The deltas between the actual price and the prediction
         """
@@ -2255,33 +2257,31 @@ class PricePredict():
 
         # Predictions are in y_red_rs
         # Generate deltas between current prediction and prior prediction...
-        # -- Adjust Predicted Close
+        # -- Adjust Predicted Close: Applies deltas of the predicted close to the prior actual close.
         pred_delta_c = [pred_close[i - 1] - pred_close[i] for i in range(1, len(pred_close))]
         min_len = min(len(target_close), len(pred_close))
         target_close = target_close[-min_len:]
         pred_adj_close = [target_close[i] + pred_delta_c[i] for i in range(0, len(pred_delta_c))]
 
-        # -- Adjust Predicted High
+        # -- Adjust Predicted High: Applies deltas of the predicted high to the prior actual high.
         pred_delta_h = [pred_high[i - 1] - pred_high[i] for i in range(1, len(pred_high))]
         min_len = min(len(target_high), len(pred_high))
         target_high = target_high[-min_len:]
         pred_adj_high = [target_high[i] + abs(pred_delta_h[i]) for i in range(0, len(pred_delta_h))]
 
         #    -- Adjusted Close Prediction should not be higher than Adjusted High Prediction
-        #       TODO: Adjust the both high and close to be median between the two.
-        pred_adj_high = [pred_adj_close[i] if pred_adj_close[i] > pred_adj_high[i] else pred_adj_high[i] for i in
-                         range(0, len(pred_delta_c))]
+        pred_adj_close = [pred_adj_close[i] if pred_adj_close[i] < pred_adj_high[i] else pred_adj_high[i]
+                          for i in range(0, len(pred_adj_close))]
 
-        # -- Adjust Predicted low
+        # -- Adjust Predicted low: Applies deltas of the predicted low to the prior actual low.
         pred_delta_l = [pred_low[i - 1] - pred_low[i] for i in range(1, len(pred_low))]
         min_len = min(len(target_low), len(pred_low))
         target_low = target_low[-min_len:]
         pred_adj_low = [target_low[i] - abs(pred_delta_l[i]) for i in range(0, len(pred_delta_l))]
 
         #    -- Adjusted Close Prediction should not be lower than Adjusted Low Prediction
-        #       TODO: Adjust the both Low and close to be median between the two.
-        pred_adj_low = [pred_adj_close[i] if pred_adj_close[i] < pred_adj_low[i] else
-                        pred_adj_low[i] for i in range(0, len(pred_delta_l))]
+        pred_adj_close = [pred_adj_close[i] if pred_adj_close[i] > pred_adj_low[i] else pred_adj_low[i]
+            for i in range(0, len(pred_adj_close))]
 
         adj_pred = np.array([pred_class[-len(pred_adj_close):], pred_adj_close, pred_adj_high, pred_adj_low])
         adj_pred = np.moveaxis(adj_pred, [0], [1])
@@ -2296,7 +2296,7 @@ class PricePredict():
         self.pred_last_delta = pred_delta_c[-2]  # Index to 2nd to last value, as the last value is a placeholder.
         pred_sign = np.sign(pred_delta_c[-2])  # Index to 2nd to last value, as the last value is a placeholder.
         # Invert the rank so that longs are positive and shorts are negative
-        #self.pred_rank = (pred_sign * pred_rank) * -1
+        # self.pred_rank = (pred_sign * pred_rank) * -1
         # Stash all prediction rankings.
         self.pred_rank = ranking
 
@@ -2577,9 +2577,9 @@ class PricePredict():
 
         return file_paths
 
-    def _fetch_n_prep(self, ticker: str, date_start: str, date_end: str,
-                      period: str = None, train_split: float = 0.05,
-                      backcandles: bool = None):
+    def fetch_n_prep(self, ticker: str, date_start: str, date_end: str,
+                     period: str = None, train_split: float = 0.05,
+                     backcandles: bool = None):
 
         # Handle the optional parameters
         if period is None:
@@ -2634,6 +2634,96 @@ class PricePredict():
         self.data_scaled = scaled_data
 
         return X, y
+
+    def fetch_train(self, ticker,
+                     train_date_start, train_date_end,
+                     force_training=False,
+                     period=None, train_split=None, backcandles=None,
+                     use_curr_model=True, save_model=False):
+        """
+        Train and test the model.
+        Does not load a model, only trains it.
+
+        # Required Positional Parameters
+        :param ticker:
+        :param train_date_start:
+        :param train_date_end:
+        :param pred_date_start:
+        :param pred_date_end:
+
+        Optional Parameters:
+        :param period=None:      # The period of the data, daily or weekly
+        :param train_split=None:  # The percentage of the data to use for training
+        :param backcandles=None: # The number of candles to look back for each period
+        :param save_model=False: # Save the model if True, and force training
+
+        :return:
+        """
+
+        if force_training is None and self.force_training is not None:
+            force_training = self.force_training
+        else:
+            force_training = False
+            self.force_training = force_training
+
+        if ticker is None or ticker == '':
+            self.logger.error("Error: ticker is empty.")
+            raise ValueError("Error: ticker is empty.")
+
+        if period is None:
+            period = self.period
+        else:
+            if period not in PricePredict.PeriodValues:
+                self.logger.error(f"period[{period} is invalid. Must be \"{'", "'.join(PricePredict.PeriodValues)}\"")
+                raise ValueError(f"period[{period}]: may only be \"{'", "'.join(PricePredict.PeriodValues)}\"")
+            self.period = period
+        if train_split is None:
+            train_split = self.train_split
+        else:
+            self.train_split = train_split
+        if backcandles is None:
+            backcandles = self.back_candles
+        else:
+            self.back_candles = backcandles
+
+        model = None
+        if use_curr_model and force_training is False:
+            # If the self.model is None, load the latest model if it exists...
+            if self.model is not None:
+                # Load an existing model if it exists
+                model_path = self.model_dir + ticker + f"_{period}_" + train_date_start + "_" + train_date_end + ".keras"
+                if os.path.exists(model_path):
+                    model = self.load_model(model_path)
+                    self.logger.info(f">>> Model Loaded: {model_path}")
+                else:
+                    self.logger.info(f"=== Model Not Found: {model_path}")
+            else:
+                # Use the currently load loaded model.
+                model = self.model
+
+        if model is None:
+            # Load training data and prepare the data
+            X, y = self.fetch_n_prep(ticker, train_date_start, train_date_end,
+                                     period=period, train_split=0)
+
+            # ============== Train the model
+            # Use a small batch size and epochs to test the model training
+            # Training split the X & y data into training and testing data
+            # What is returned is the model, the prediction, and the mean squared error.
+            model, y_pred, mse = self.train_model(X, y,
+                                                  train_split=train_split, backcandles=backcandles)
+
+            if len(y_pred) != 0:
+                pcnt_nan = (len(y_pred) - np.count_nonzero(~np.isnan(y_pred))) / len(y_pred)
+                if pcnt_nan > 0.1:
+                    self.logger.info(f"\n*** NaNs in y_pred: {pcnt_nan}%")
+                    # Throw a data exception if the model is not trained properly.
+                    raise ValueError("Error: Prediction has too many NaNs. Check for Nans in the data?")
+
+                if model is not None:
+                    self.model = model
+
+        return model
 
     def fetch_and_predict(self, model_path: str = None,
                           date_start: str = None, date_end: str = None):
@@ -2723,8 +2813,8 @@ class PricePredict():
 
         if model is None:
             # Load training data and prepare the data
-            X, y = self._fetch_n_prep(ticker, train_date_start, train_date_end,
-                                      period=period, train_split=0)
+            X, y = self.fetch_n_prep(ticker, train_date_start, train_date_end,
+                                     period=period, train_split=0)
 
             # ============== Train the model
             # Use a small batch size and epochs to test the model training

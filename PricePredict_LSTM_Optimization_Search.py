@@ -160,7 +160,7 @@ def bayes_search():
     start_date = (datetime.now() - timedelta(days=365 * 5)).strftime('%Y-%m-%d')
     # Load and prep data from Yahoo Finance
     pp.ticker = ticker
-    X, y = pp._fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.8)
+    X, y = pp.fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.8)
     # Train the model
     model, y_pred, mse = pp.train_model(X, y)
 
@@ -194,18 +194,18 @@ def bayes_search():
     # Output the prediction analysis
     print(f"Best Prediction Analysis:")
     pprint(pp.bayes_best_pred_hp)
-    # Plot the prediction chart
-    pp.gen_prediction_chart()
 
 
 if __name__ == "__main__":
 
-    run_bayes_search = True
+    # True: Run the Bayesian Hyperparameter Search
+    # False: Load the latest saved PPO and generate the prediction chart
+    run_bayes_search = False
 
     if run_bayes_search:
         bayes_search()
     else:
         ppo_file, ppo = get_ppo('IBM', 'D', bypass_cache=True, file_offset=0)
-        file, fig = ppo.gen_prediction_chart(show_plot=True)
+        file, fig = ppo.gen_prediction_chart(save_plot=False,show_plot=True)
         mpf.show()
 

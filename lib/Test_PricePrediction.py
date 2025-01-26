@@ -786,7 +786,7 @@ class Test_PricePredict(TestCase):
         pp.epochs = 10
         pp.batch_size = 5
         # Load and prep data from Yahoo Finance
-        X, y = pp._fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.8)
+        X, y = pp.fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.8)
         self.assertEqual(1028, len(X), "X: Wrong length")
         self.assertEqual(1028, len(y), "y: Wrong length")
         # Train the model
@@ -818,7 +818,7 @@ class Test_PricePredict(TestCase):
         pp.batch_size = 1024
         pp.model = None
         # Load and prep data from Yahoo Finance
-        X, y = pp._fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.2)
+        X, y = pp.fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.2)
         self.assertEqual(1028, len(X), "X: Wrong length")
         self.assertEqual(1028, len(y), "y: Wrong length")
         # Train the model with hidden laysers
@@ -856,7 +856,7 @@ class Test_PricePredict(TestCase):
         end_date = "2023-12-31"
         pp = PricePredict(ticker, period='W', model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
         # Load and prep data from Yahoo Finance
-        X, y = pp._fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.8)
+        X, y = pp.fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.8)
         self.assertEqual(456, len(X), "X: Wrong length")
         self.assertEqual(456, len(y), "y: Wrong length")
         # Train the model
@@ -896,7 +896,7 @@ class Test_PricePredict(TestCase):
         end_date = "2023-12-31"
         # Load and prep data from Yahoo Finance
         pp.ticker = ticker
-        X, y = pp._fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.8)
+        X, y = pp.fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.8)
         self.assertEqual(1028, len(X), "X: Wrong length")
         self.assertEqual(1028, len(y), "y: Wrong length")
 
@@ -1523,3 +1523,63 @@ class Test_PricePredict(TestCase):
         self.assertIsNotNone(pp.sentiment_json, "groq_sentiment: Returned None")
         self.assertIsNotNone(pp.sentiment_json['balance_sheet_analysis']['cash_and_cash_equivalents'],
                              "groq_sentiment ['balance_sheet_analysis']['cash_and_cash_equivalents']: Returned None")
+
+    # def test_fetch_n_prep(self):
+    #     self.assertTrue(False, "Test not implemented")
+    #
+    # def test_fetch_train(self):
+    #     self.assertTrue(False, "Test not implemented")
+    #     # Create an instance of the price prediction object
+    #     pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
+    #
+    #     # Set the ticker and date range (what we want to pull from yahoo finance)
+    #     ticker = "AAPL"
+    #     start_date = "2020-01-01"
+    #     end_date = "2023-12-31"
+    #
+    #     # Load data from Yahoo Finance
+    #     X, y = pp.fetch_train(ticker, start_date, end_date)
+    #     self.assertIsNotNone(X, "X: Returned None")
+    #     self.assertIsNotNone(y, "y: Returned None")
+    #     self.assertEqual(1042, len(X), "X: Wrong length")
+    #     self.assertEqual(1042, len(y), "y: Wrong length")
+    #
+    # def test_fetch_predict(self):
+    #     self.assertTrue(False, "Test not implemented")
+    #     # Create an instance of the price prediction object
+    #     pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
+    #
+    #     # Set the ticker and date range (what we want to pull from yahoo finance)
+    #     ticker = "AAPL"
+    #     start_date = "2020-01-01"
+    #     end_date = "2023-12-31"
+    #
+    #     # Load data from Yahoo Finance
+    #     X, y = pp.fetch_predict(ticker, start_date, end_date)
+    #     self.assertIsNotNone(X, "X: Returned None")
+    #     self.assertIsNotNone(y, "y: Returned None")
+    #     self.assertEqual(1042, len(X), "X: Wrong length")
+    #     self.assertEqual(1042, len(y), "y: Wrong length")
+    #
+    # def test_fetch_train_predict(self):
+    #     self.assertTrue(False, "Test not implemented")
+    #
+    # def test_serialize(self):
+    #     self.assertTrue(False, "Test not implemented")
+    #
+    # def test_unserialize(self):
+    #     self.assertTrue(False, "Test not implemented")
+    #     # A test for PricePredict.unserialize
+    #     # Create an instance of the price prediction object
+    #     pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
+    #     pp.ticker = "AAPL"
+    #     pp.period = PricePredict.PeriodDaily
+    #     pp.date_start = "2020-01-01"
+    #     pp.date_end = "2023-12-31"
+    #     pp.fetch_train()
+    #
+    # def test_store_me(self):
+    #     self.assertTrue(False, "Test not implemented")
+    #
+    # def test_restore(self):
+    #     self.assertTrue(False, "Test not implemented")
