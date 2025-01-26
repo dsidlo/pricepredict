@@ -38,6 +38,7 @@ import pydantic
 import lzma
 import dill
 
+from typing import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 from io import StringIO
@@ -66,6 +67,9 @@ from groq import Groq
 from bayes_opt import BayesianOptimization
 from silence_tensorflow import silence_tensorflow
 from statsmodels.tsa.stattools import coint
+from tensorboard.plugins.hparams import api as hp
+
+from tensorflow.keras.callbacks import TensorBoard
 
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
@@ -78,11 +82,16 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 """
 Notes: Regarding training...
 Training the model should requires at least 2 years of prior data for a daily period. 
-For other periodicies, that's from 600 to 800 prior periods.
+For other periods, that's from 600 to 800 prior periods.
 
 Notes: Regarding prediction...
 To perform a prediction, the model requires enough data to fill the back_candles period,
 and enough data to fill have data for any added technical indicators.
+
+Note: Following are some functions that are used as Keras model metrics.
+      These functions require the decoration @keras.saving.register_keras_serializable()  
+      that allows keras to find these functions upon deserialization of associated models
+      or a PricePredict object.  
 """
 
 
@@ -107,9 +116,70 @@ class DataCache():
         self.y: list[Decimal] = []
 
 
+"""
+Use for a custom metric where we are looking for a model that more accurately
+predicts the trend direction.
+
+----- Custom gradient based trend correlation Metric Functions -----
+"""
+def correlation_loss(y_true, y_pred):
+    # Compute correlation
+    mean_true = tf.reduce_mean(y_true)
+    mean_pred = tf.reduce_mean(y_pred)
+    cov = tf.reduce_mean((y_true - mean_true) * (y_pred - mean_pred))
+    std_true = tf.math.reduce_std(y_true)
+    std_pred = tf.math.reduce_std(y_pred)
+    corr = cov / (std_true * std_pred)
+
+    # Convert correlation to loss (maximize correlation means minimize loss)
+    return 1 - corr  # High correlation gives low loss
+
+
+# ----- Combined Loss Function  mae and trend correlation -----
+@keras.saving.register_keras_serializable(package='pricepredict', name='trend_loss')
+def trend_loss(y_true, y_pred):
+    # Example: A simple trend loss where we want predictions to follow the trend of true data
+    # Here, we're checking if the direction of change matches
+    diff_true = y_true[:, 1:] - y_true[:, :-1]
+    diff_pred = y_pred[:, 1:] - y_pred[:, :-1]
+
+    # Sign of the difference gives us direction
+    sign_true = tf.sign(diff_true)
+    sign_pred = tf.sign(diff_pred)
+
+    # Count correct trend predictions
+    correct_trends = tf.reduce_sum(tf.cast(tf.equal(sign_true, sign_pred), tf.float32))
+
+    # Total number of trend comparisons
+    total_trends = tf.cast(tf.size(diff_true), tf.float32)
+
+    # Calculate the proportion of correct trend predictions
+    return 1.0 - (correct_trends / tf.maximum(total_trends, 1.0))
+
+
+@keras.saving.register_keras_serializable(package='pricepredict', name='trend_corr_mae_loss')
+def trend_corr_mae_loss(y_true, y_pred):
+    # Compute both losses
+    mse = tf.keras.losses.MeanSquaredError()
+    price_loss = mse(y_true, y_pred)
+    trend_loss_value = trend_loss(y_true, y_pred)
+
+    # You can weight these losses based on their importance
+    alpha = 0.5  # Example weight for price loss
+    beta = 0.5  # Example weight for trend loss
+
+    return tf.cast(alpha * price_loss + beta * trend_loss_value, tf.float32)
+
+
+"""
+------------ End of Custom Metric Functions ------------ 
+"""
+
+
 # ================================
 # This is the PricePredict class.
 # ================================
+@keras.saving.register_keras_serializable(package='pricepredict', name='PricePredict')
 class PricePredict():
     """
     PricePredict Class
@@ -159,12 +229,15 @@ class PricePredict():
                  shuffle=True,  # Shuffle the data for training the model.
                  force_training=False,  # Force training the model
                  # Logging and Debugging
+                 keras_callbacks: [Callable] = None,  # An array of keras callbacks for model.fit(().
+                 tf_logs_dir='./logs/fit/',  # The keras fit logs
+                 tf_profiler=False,  # Use the tensorflow profiler
+                 keras_log='PricePredict_keras.log',  # The keras log file
                  verbose=True,  # This Class' Print debug information
                  keras_verbosity=0, # The keras verbosity level
                  logger=None,  # The mylogger for this object
                  logger_file_path=None,  # The path to the log file
                  log_level=None,  # The logging level
-                 keras_log='PricePredict_keras.log',  # The keras log file
                  # yfinance
                  yf_sleep=61,  # The sleep time for yfinance requests
                  ):
@@ -195,11 +268,18 @@ class PricePredict():
         self.seasonal_chart_path = ''  # The path to the seasonal decomposition chart
         self.ppo_dir = ppo_dir  # The directory where the partial prediction optimization data is saved
         self.ppo_file = None  # The file where the partial prediction optimization data is saved
+        self.tf_logs_dir = tf_logs_dir  # The keras fit logs
+        self.tf_profiler = tf_profiler  # Use the tensorflow profiler
+        self.tf_summary_step = 0  # The step for the tf.summary.experimental.scalar()
+        # -------------------------------
         self.period = period  # The period for the data (D, W)
         self.model = None  # The current loaded model
         # ---- Bayesian Optimization ----
-        self.bayes_best_loss = None  # The best loss from the bayesian optimization
-        self.bayes_best_model = None  # The best bayesian optimized model, temp holder.
+        self.bayes_best_loss = None  # The best loss for prediction from the bayesian optimization
+        self.bayes_best_trend = None  # The best trend from the bayesian optimization
+        self.bayes_best_pred_model = None  # The best bayesian optimized model, temp holder
+        self.bayes_best_pred_hp = None  # The best hyperparameters from the bayesian optimization
+        self.bayes_best_pred_analysis = None  # The best analysis from the bayesian optimization
         self.bayes_opt_hypers = {}  # The optimized hyperparameters in ['max'] and other data.
         self.scaler = None  # The current models scaler
         self.verbose = verbose  # Print debug information
@@ -218,6 +298,7 @@ class PricePredict():
         self.train_split = train_split  # The validation split used during training.
         self.batch_size = batch_size  # The batch size for training the model.
         self.epochs = epochs  # The number of epochs for training the model.
+        self.keras_callbacks = keras_callbacks  # The keras callbacks for training the model.
         # Training and Data/Results
         self.X = None  # 3D array of training data.
         self.y = None  # Target values (Adj Close)
@@ -294,6 +375,11 @@ class PricePredict():
         else:
             self.logger = logger
 
+        if self.tf_profiler and (self.tf_logs_dir is None or self.keras_callbacks is None):
+            e_txt = f"Error: if tf_profiler is True, you must set tf_logs_dir and keras_callbacks."
+            self.logger.error(e_txt)
+            raise ValueError(e_txt)
+
         silence_tensorflow()
 
         # # Set the objects logging to stdout by default for testing.
@@ -339,6 +425,9 @@ class PricePredict():
                 self.yf = yf
 
         self.logger.debug(f"=== PricePredict: Initialized.")
+
+    def get_config(self):
+        pass
 
     def chk_yahoo_ticker(self, ticker):
         """
@@ -1576,7 +1665,7 @@ class PricePredict():
             output = Activation('linear', name='output')(inputs)
             model = Model(inputs=lstm_input, outputs=output)
             adam = optimizers.Adam(learning_rate=adam_learning_rate)
-            model.compile(optimizer=adam, loss='mse')
+            model.compile(optimizer=adam, loss='mse', metrics=['mae', 'mse', 'accuracy'])
             self.logger.debug(f'Created new model: {model.summary()}')
         else:
             self.logger.debug("Using existing self.model...")
@@ -1636,6 +1725,7 @@ class PricePredict():
         self.logger.debug(f"=== Model Training Completed [{self.ticker}:{self.period}]...")
 
         return model, y_pred, mse
+
 
     def bayes_train_model(self, X, y,
                           train_split: float = 0.8, backcandles: int = 15,
@@ -1732,7 +1822,10 @@ class PricePredict():
         output = Activation('linear', name='output')(inputs)
         model = Model(inputs=lstm_input, outputs=output)
         adam = optimizers.Adam(learning_rate=adam_learning_rate)
-        model.compile(optimizer=adam, loss='mse')
+        # Use Mean Squared Error as the loss metric.
+        # model.compile(optimizer=adam, loss='mse', metrics=['mae', 'mse', 'accuracy', trend_direction_accuracy])
+        # Use the custom metric for trend direction accuracy.
+        model.compile(optimizer=adam, loss=trend_corr_mae_loss, metrics=['mae', 'mse', 'accuracy', trend_loss, trend_corr_mae_loss])
         self.logger.debug(f'Created new model: {model.summary()}')
 
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=split_limit, random_state=42)
@@ -1741,26 +1834,47 @@ class PricePredict():
         # Callback: Early Stopping
         early_stopping = EarlyStopping(monitor='val_loss', patience=5, min_delta=0.001)
 
+        # Add callbacks for model.fit()
+        model_fit_callbacks = [early_stopping, csv_logger]
+        if self.keras_callbacks is not None:
+            for cb in self.keras_callbacks:
+                model_fit_callbacks.append(cb)
+
         # Train the model
         model.fit(x=X_train, y=y_train,
-                  batch_size=batch_size, epochs=epochs,
-                  shuffle=shuffle, validation_split=validation_split,
-                  validation_data=(X_test, y_test),
-                  callbacks=[early_stopping, csv_logger],
-                  verbose=self.keras_verbosity)
+                batch_size=batch_size, epochs=epochs,
+                shuffle=shuffle, validation_split=validation_split,
+                validation_data=(X_test, y_test),
+                callbacks=model_fit_callbacks,
+                verbose=self.keras_verbosity)
 
         loss = model.evaluate(X_test, y_test, verbose=self.keras_verbosity)
-        # We are looking for a loss value that is as close to zero as possible.
-        if self.bayes_best_loss is None or abs(loss) < abs(self.bayes_best_loss):
-            self.bayes_best_loss = loss
-            # Hold on to the best Hyperparameters
-            self.hp_epochs = epochs
-            self.hp_batch_size = batch_size
-            self.hp_lstm_units = lstm_units
-            self.hp_lstm_dropout = lstm_dropout
-            self.hp_adam_learning_rate = adam_learning_rate
-            self.hp_hidden_layers = hidden_layers
-            self.hp_hidden_layer_units = hidden_layer_units
+        loss_fit = loss[0]  # Best loss metric: mse
+        loss_mae = loss[1]  # Mean Absolute Error
+        loss_mse = loss[2]  # Mean Squared Error
+        loss_trd = loss[4]  # Trend tred_loss
+        less_tcm = loss[5]  # Trend Correlation MAE Loss
+
+        # Save the model with the best prediction prediction accuracy
+        if self.bayes_best_loss is None or abs(loss_fit) < abs(self.bayes_best_loss):
+            best_model = True
+            # Save the best loss metric
+            self.bayes_best_loss = loss_fit
+            # Hold onto the best pred model found thus far.
+            self.bayes_best_pred_model = model
+            # Saving the best prediction hyperparameters
+            self.bayes_best_pred_hp = {'hp_lstm_units': lstm_units,
+                                       'hp_lstm_dropout': lstm_dropout,
+                                       'hp_adam_learning_rate': adam_learning_rate,
+                                       'hp_epochs': epochs,
+                                       'hp_batch_size': batch_size,
+                                       'hp_hidden_layers': hidden_layers,
+                                       'hp_hidden_layer_units': hidden_layer_units,
+                                       'fit_loss': loss_fit,
+                                       'fit_mae': loss_mae,
+                                       'fit_mse': loss_mse,
+                                       'fit_trend_loss': loss_trd,
+                                       'fit_trend_corr_mae_loss': less_tcm}
             # Hold on the values required for prediction
             self.X_train = X_train
             self.X_test = X_test
@@ -1768,12 +1882,12 @@ class PricePredict():
             self.y_test = y_test
             self.X = X
             self.y = y
-            # Hold onto the best model found thus far.
-            self.bayes_best_model = model
 
-        return loss
+        # Loss is flipped because we want to maximize the loss.
+        return -loss_fit
 
     def bayesian_optimization(self, X, y,
+                              keras_callbacks=None,
                               # Hyperparameter Ranges
                               pb_lstm_units: tuple = None,            # Default 256
                               pb_lstm_dropout: tuple = None,          # Default 0.5
@@ -1824,6 +1938,10 @@ class PricePredict():
                 # Truncate the hidden_layer_units list to the number of hidden_layers.
                 hidden_layer_units = hidden_layer_units[:int(hidden_layers)]
 
+            if self.keras_callbacks is not None and self.tf_profiler:
+                tf.profiler.experimental.start(self.tf_logs_dir)
+
+            # Train the mode: loss returns [loss, mae, mse, accuracy, trend_direction_accuracy]
             loss = self.bayes_train_model(X, y,
                                           lstm_units=int(lstm_units),
                                           lstm_dropout=lstm_dropout,
@@ -1833,8 +1951,34 @@ class PricePredict():
                                           hidden_layers=int(hidden_layers),
                                           hidden_layer_units=hidden_layer_units)
 
-            # Loss is flipped because we want to maximize the loss.
-            return -loss
+            # Turn on TensorFlow Profiler
+            if self.keras_callbacks is not None and self.tf_profiler:
+                tf.summary.trace_on(graph=True, profiler=True)
+                writer = tf.summary.create_file_writer(self.tf_logs_dir)
+                self.tf_summary_step += 1
+                tf.summary.experimental.set_step(self.tf_summary_step)
+                with writer.as_default():
+                    # Create a summary of the model.
+                    tf.summary.trace_export(
+                        name="bayes_train_model",
+                        step=0,
+                        profiler_outdir=self.tf_logs_dir)
+                    # Log the hyperparameters
+                    tf.summary.scalar('tf_step', tf.summary.experimental.get_step())
+                    tf.summary.scalar('lstm_units', lstm_units)
+                    tf.summary.scalar('lstm_dropout', lstm_dropout)
+                    tf.summary.scalar('adam_learning_rate', adam_learning_rate)
+                    tf.summary.scalar('epochs', epochs)
+                    tf.summary.scalar('batch_size', batch_size)
+                    tf.summary.scalar('hidden_layers', hidden_layers)
+                    i = 0
+                    for val in hidden_layer_units:
+                        tf.summary.scalar(f'hidden_layer_units[{i}]', hidden_layer_units[i])
+                        i += 1
+                    # Log the trend direction accuracy
+                    tf.summary.scalar('loss', loss)
+
+            return loss
 
         # === End of the function to optimize ===
         # ======================================================
@@ -1862,19 +2006,6 @@ class PricePredict():
         if pb_hidden_layer_units_4 is not None:
             pbounds_dict['hidden_layer_units_4'] = pb_hidden_layer_units_4
 
-        # _pbounds_dict = {'lstm_units': pb_lstm_units,
-        #                  'lstm_dropout': pb_lstm_dropout,
-        #                  'adam_learning_rate': pb_adam_learning_rate,
-        #                  'epochs': pb_epochs,
-        #                  'batch_size': pb_batch_size,
-        #                  'hidden_layers': pb_hidden_layers,
-        #                  'hidden_layer_units_1': pb_hidden_layer_units_1,
-        #                  'hidden_layer_units_2': pb_hidden_layer_units_2,
-        #                  'hidden_layer_units_3': pb_hidden_layer_units_3,
-        #                  'hidden_layer_units_4': pb_hidden_layer_units_4}
-        # # Remove parameters that were not defined.
-        # pbounds_dict: {tuple} = {k: v for k, v in _pbounds_dict.items() if v is not None or type(v) is tuple}
-
         # Prepare the Bayesian Optimization
         optimizer = BayesianOptimization(f=optimize_model, pbounds=pbounds_dict)
         # Optimize...
@@ -1885,17 +2016,11 @@ class PricePredict():
 
         self.logger.debug(f"Ticker: [{self.ticker}:{self.period}] Bayesian Optimization: {optimizer.max}")
 
+        """
+        -------------- Analyze the Prediction Model -------------- 
+        """
         # Make this PP objects models the best model found by the optimizer.
-        self.model = self.bayes_best_model
-        # Clear the saved model to reduce this object's pickle size
-        self.bayes_best_model = None
-        # Save out eh best model
-        if self.model is not None:
-            self.save_model(model=self.model, ticker=self.ticker)
-        else:
-            e_txt = f"Error: Ticker[{self.ticker}] Bayesian Optimization failed to find a model."
-            self.logger.error(e_txt)
-            raise ValueError(e_txt)
+        self.model = self.bayes_best_pred_model
         # Run the last best prediction
         self.predict_price(self.X)
         # Restore the scale of the prediction
@@ -1906,7 +2031,7 @@ class PricePredict():
         #   last closing prices.
         self.adjust_prediction()
         # Analyze the prediction
-        self.prediction_analysis()
+        self.bayes_best_pred_analysis = self.prediction_analysis()
 
         if opt_csv is not None:
             # Append the results to a CSV file.
@@ -3372,6 +3497,10 @@ class PricePredict():
         return PricePredict.serialize(self)
 
     def store_me(self) -> str:
+        # Clear properties that may have Tensorflow objects
+        # as they won't pickle correctly.
+        self.keras_callbacks = None
+        self.tf_profiler = None
         # Store this object into a compressed dill object *.dilz
         filepath = self.ppo_dir + f"{self.ticker}_{self.period}_{self.date_end}.dilz"
         self.ppo_file = filepath
