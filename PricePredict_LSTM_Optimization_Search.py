@@ -84,7 +84,9 @@ if 'ObjCache' not in globals():
 DirPPO = './ppo/'
 
 
-def get_ppo(symbol: str, period: str, bypass_cache=False, file_offset=0):
+def get_ppo(symbol: str, period: str,
+            bypass_cache=False, file_offset=0):
+
     global ObjCache
 
     # print(f'Type of ObjCache: {type(ObjCache)}')
@@ -140,7 +142,25 @@ def get_ppo(symbol: str, period: str, bypass_cache=False, file_offset=0):
     return ppo_file, ppo
 
 
-def bayes_search():
+def bayes_search(ticker: str, period: str,
+                 back_candles=1000,
+                 train_model=False, find_best_model=False,
+                 # --- Hyperparameters For Training ---
+                 hp_adam_learning_rate=None,
+                 hp_batch_size=None,
+                 hp_epochs=None,
+                 hp_hidden_layer_units=None,
+                 hp_hidden_layers=None,
+                 hp_lstm_dropout=None,
+                 hp_lstm_units=None,
+                 # --- Hyperparameter Ranges for Model Optimization ---
+                 hpo_adam_learning_rate: (float, float) = None,
+                 hpo_batch_size: (int, int) = None,
+                 hpo_epochs: (float, float) = None,
+                 hpo_hidden_layer_units: (int, int) = None,
+                 hpo_hidden_layers: [(int, int)] = None,
+                 hpo_lstm_dropout: (float, float) = None,
+                 hpo_lstm_units: (int, int) = None):
 
     logger = logging.getLogger()
     logger.setLevel(logging.ERROR)
@@ -149,40 +169,57 @@ def bayes_search():
     tensorboard_callback = TensorBoard(log_dir=log_dir, histogram_freq=1, write_graph=True)
 
     # Create an instance of the price prediction object
-    pp = PricePredict(model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/', ppo_dir='./ppo/',
+    pp = PricePredict(ticker, period, back_candles=back_candles,
+                      model_dir='./models/', chart_dir='./charts/', preds_dir='./predictions/', ppo_dir='./ppo/',
                       verbose=False, logger=logger, log_level=logging.ERROR,
                       keras_verbosity=1, tf_logs_dir=log_dir,
                       keras_callbacks=[tensorboard_callback], tf_profiler=True)
 
     # Load data from Yahoo Finance
-    ticker = "IBM"
+    weeks = back_candles % 5
+    days = back_candles + (weeks + 2)
     end_date = datetime.now().strftime('%Y-%m-%d')
-    start_date = (datetime.now() - timedelta(days=365 * 5)).strftime('%Y-%m-%d')
-    # Load and prep data from Yahoo Finance
-    pp.ticker = ticker
-    X, y = pp.fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.8)
-    # Train the model
-    model, y_pred, mse = pp.train_model(X, y)
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
 
-    # Perform Bayesian optimization
-    # - Test with all Parameters and 1 2 and 3 hidden layers
-    pp.model = None
-    pp.bayes_opt_hypers = None
-    pp.bayesian_optimization(X, y,
-                             # opt_max_init=100,
-                             # opt_max_iter=100,
-                             opt_max_init=50,
-                             opt_max_iter=50,
-                             pb_lstm_units=(220, 260),
-                             pb_lstm_dropout=(0.1, 0.2),
-                             pb_adam_learning_rate=(0.005, 0.008),
-                             pb_epochs=(200, 350),
-                             pb_batch_size=(700, 900),
-                             pb_hidden_layers=(3, 3),
-                             pb_hidden_layer_units_1=(50, 70),
-                             pb_hidden_layer_units_2=(32, 256),
-                             pb_hidden_layer_units_3=(64, 256),
-                             pb_hidden_layer_units_4=(128, 256))
+    if train_model:
+        # Load and prep data from Yahoo Finance
+        pp.ticker = ticker
+        X, y = pp.fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.8)
+        # Train the model
+        model, y_pred, mse = pp.train_model(X, y,
+                                            epochs=hp_epochs,
+                                            adam_learning_rate=hp_adam_learning_rate,
+                                            lstm_dropout=hp_lstm_dropout,
+                                            lstm_units=hp_lstm_units,
+                                            batch_size=hp_batch_size,
+                                            hidden_layer_units=hp_hidden_layer_units,
+                                            hidden_layers=hp_hidden_layers,
+                                            )
+        # Now perform the prediction
+        pp.predict_price(pp.X)
+
+    if find_best_model:
+        # Perform Bayesian optimization
+        # - Test with all Parameters and 1 2 and 3 hidden layers
+        pp.model = None
+        pp.bayes_opt_hypers = None
+        pp.ticker = ticker
+        X, y = pp.fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.8)
+        pp.bayesian_optimization(X, y,
+                                 # opt_max_init=100,
+                                 # opt_max_iter=100,
+                                 opt_max_init=10,
+                                 opt_max_iter=100,
+                                 pb_lstm_units=hpo_lstm_units,  # (220, 260),
+                                 pb_lstm_dropout=hpo_lstm_dropout,  # (0.1, 0.2),
+                                 pb_adam_learning_rate=hpo_adam_learning_rate,  # (0.005, 0.008),
+                                 pb_epochs=hpo_epochs,  # (200, 350),
+                                 pb_batch_size=hpo_batch_size,  # (700, 900),
+                                 pb_hidden_layers=hpo_hidden_layers,  # (4, 4),
+                                 pb_hidden_layer_units_1=hpo_hidden_layer_units[0],  # (16,16),
+                                 pb_hidden_layer_units_2=hpo_hidden_layer_units[1],  # (32, 32),
+                                 pb_hidden_layer_units_3=hpo_hidden_layer_units[2],  # (64, 64),
+                                 pb_hidden_layer_units_4=hpo_hidden_layer_units[3])  # (128, 128))
 
     # Save the pp object
     file_path = pp.store_me()
@@ -193,19 +230,57 @@ def bayes_search():
     pprint(pp.bayes_best_pred_hp)
     # Output the prediction analysis
     print(f"Best Prediction Analysis:")
-    pprint(pp.bayes_best_pred_hp)
+    pprint(pp.analysis)
 
+    return pp
 
 if __name__ == "__main__":
 
     # True: Run the Bayesian Hyperparameter Search
     # False: Load the latest saved PPO and generate the prediction chart
-    run_bayes_search = False
+    train_model = False
+    find_best_model = False
+    ticker = '^GSPC'
 
-    if run_bayes_search:
-        bayes_search()
+    if train_model or find_best_model:
+        ppo = bayes_search(ticker, 'D', back_candles=2000
+                           # --- Hyperparameters For Training ---
+                           , train_model=train_model
+                           , hp_batch_size=801
+                           , hp_epochs=221
+                           , hp_lstm_dropout=0.1315779901171808
+                           , hp_lstm_units=234
+                           , hp_adam_learning_rate=0.007930918606069523
+                           , hp_hidden_layer_units=[67, 186]
+                           , hp_hidden_layers=2
+                           # --- Hyperparameter Ranges for Model Optimization ---
+                           , find_best_model=find_best_model
+                           , hpo_batch_size=(700, 900)
+                           , hpo_epochs=(200, 350)
+                           , hpo_adam_learning_rate=(0.005, 0.008)
+                           , hpo_lstm_dropout=(0.1, 0.2)
+                           , hpo_lstm_units=(256, 256)
+                           # (220, 260)
+                           , hpo_hidden_layers=(2, 2)
+                           # (4,4, None, None) {Must have 4 tuples or None}
+                           , hpo_hidden_layer_units=[(1024, 1024), (128, 128), None, None]
+                           # [(16, 16), (32, 32), (64, 64), (128, 128)]
+                           )
+        file, fig = ppo.gen_prediction_chart(save_plot=False,show_plot=True, last_candles=2000)
+        mpf.show()
     else:
+        # ppo_file, ppo = get_ppo('IBM', 'D', bypass_cache=True, file_offset=0)
+        # file, fig = ppo.gen_prediction_chart(save_plot=False,show_plot=True)
+        # mpf.show()
+
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=365 * 10)).strftime('%Y-%m-%d')
+
         ppo_file, ppo = get_ppo('IBM', 'D', bypass_cache=True, file_offset=0)
-        file, fig = ppo.gen_prediction_chart(save_plot=False,show_plot=True)
+        ppo.ticker = '^GSPC'
+        ppo.invalidate_cache()
+        ppo.fetch_data_yahoo(ppo.ticker, start_date, end_date)
+        ppo.fetch_and_predict(ppo.ticker, start_date, end_date)
+        file, fig = ppo.gen_prediction_chart(save_plot=False,show_plot=True, last_candles=2000)
         mpf.show()
 

@@ -30,7 +30,7 @@ class Test_PricePredict(TestCase):
     @staticmethod
     def _create_test_model(this_test, pp, ticker, test_ticker, mdl_start_date, mdl_end_date):
 
-        data, features = pp.fetch_data_yahoo(ticker, mdl_start_date, mdl_end_date)
+        data, features = pp.fetch_data_yahoo(ticker, date_start=mdl_start_date, date_end=mdl_end_date)
         this_test.assertGreaterEqual(len(data), 1, "data: Wrong length")
 
         # Augment the data with additional indicators/features
@@ -103,7 +103,7 @@ class Test_PricePredict(TestCase):
         start_date = "2020-01-01"
         end_date = "2023-12-31"
         # Load data from Yahoo Finance
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=True)
+        data, features = pp.fetch_data_yahoo(ticker=ticker, date_start=start_date, date_end=end_date, force_fetch=True)
         self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
         self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
@@ -115,7 +115,7 @@ class Test_PricePredict(TestCase):
         pp.orig_data = None # Because we are re-using the pp object
         pp.orig_downloaded_data = None # Because we are re-using the pp object
         pp.cached_data = None # Because we are re-using the pp object
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=True)
+        data, features = pp.fetch_data_yahoo(ticker=ticker, date_start=start_date, date_end=end_date, force_fetch=True)
         self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
         self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
@@ -128,7 +128,7 @@ class Test_PricePredict(TestCase):
         pp.orig_data = None # Because we are re-using the pp object
         pp.orig_downloaded_data = None # Because we are re-using the pp object
         pp.cached_data = None # Because we are re-using the pp object
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=True)
+        data, features = pp.fetch_data_yahoo(ticker=ticker, date_start=start_date, date_end=end_date, force_fetch=True)
         self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
         self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
@@ -137,7 +137,7 @@ class Test_PricePredict(TestCase):
         pp.orig_data = None # Because we are re-using the pp object
         pp.orig_downloaded_data = None # Because we are re-using the pp object
         pp.cached_data = None # Because we are re-using the pp object
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        data, features = pp.fetch_data_yahoo(ticker=ticker, date_start=start_date, date_end=end_date, force_fetch=False)
         self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
         self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
@@ -150,13 +150,13 @@ class Test_PricePredict(TestCase):
         pp.orig_data = None # Because we are re-using the pp object
         pp.orig_downloaded_data = None # Because we are re-using the pp object
         pp.cached_data = None # Because we are re-using the pp object
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        data, features = pp.fetch_data_yahoo(ticker=ticker, date_start=start_date, date_end=end_date, force_fetch=False)
         self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
         self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
         self.assertEqual(pp.ticker, ticker, "Wrong ticker")
         # Now test weekly caching behaviour
-        data, features = pp.fetch_data_yahoo(ticker, '2021-3-10', '2022-4-15', force_fetch=True)
+        data, features = pp.fetch_data_yahoo(ticker=ticker, date_start='2021-3-10', date_end='2022-4-15', force_fetch=True)
         self.assertGreaterEqual(len(data), 1, "Wrong data length")
         self.assertEqual(pp.ticker, ticker, "Wrong ticker")
         # Verify that all data returned is weekly data
@@ -197,7 +197,7 @@ class Test_PricePredict(TestCase):
         pp.orig_data = None # Because we are re-using the pp object
         pp.orig_downloaded_data = None # Because we are re-using the pp object
         pp.cached_data = None # Because we are re-using the pp object
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        data, features = pp.fetch_data_yahoo(ticker=ticker, date_start=start_date, date_end=end_date, force_fetch=False)
         self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
         self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
@@ -210,7 +210,7 @@ class Test_PricePredict(TestCase):
         end_date = "2022-03-01"
         data_fetch_count = pp.data_fetch_count
         cache_fetch_count = pp.cache_fetch_count
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        data, features = pp.fetch_data_yahoo(ticker=ticker, date_start=start_date, date_end=end_date, force_fetch=False)
         self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
         self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
@@ -228,7 +228,7 @@ class Test_PricePredict(TestCase):
         data_fetch_count = pp.data_fetch_count
         cache_fetch_count = pp.cache_fetch_count
         cache_update_count = pp.cache_update_count
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        data, features = pp.fetch_data_yahoo(ticker=ticker, date_start=start_date, date_end=end_date, force_fetch=False)
         self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
         self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
@@ -252,7 +252,7 @@ class Test_PricePredict(TestCase):
         cached_data_en_dt = pp.cached_data.index[-1]
         orig_dwnld_st_dt = pp.orig_downloaded_data.index[0]
         orig_dwnld_en_dt = pp.orig_downloaded_data.index[-1]
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        data, features = pp.fetch_data_yahoo(ticker=ticker, date_start=start_date, date_end=end_date, force_fetch=False)
         self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
         self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
@@ -281,7 +281,7 @@ class Test_PricePredict(TestCase):
         cached_data_en_dt = pp.cached_data.index[-1]
         orig_dwnld_st_dt = pp.orig_downloaded_data.index[0]
         orig_dwnld_en_dt = pp.orig_downloaded_data.index[-1]
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        data, features = pp.fetch_data_yahoo(ticker=ticker, date_start=start_date, date_end=end_date, force_fetch=False)
         self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
         self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
@@ -310,7 +310,7 @@ class Test_PricePredict(TestCase):
         cached_data_en_dt = pp.cached_data.index[-1]
         orig_dwnld_st_dt = pp.orig_downloaded_data.index[0]
         orig_dwnld_en_dt = pp.orig_downloaded_data.index[-1]
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=False)
+        data, features = pp.fetch_data_yahoo(ticker=ticker, date_start=start_date, date_end=end_date, force_fetch=False)
         self.assertEqual(pp.date_start, start_date, "pp.date_start: Wrong date")
         self.assertEqual(pp.date_end, end_date, "pp.date_start: Wrong date")
         self.assertTrue(pp.orig_data is not None, "pp.orig_data is None")
@@ -565,7 +565,7 @@ class Test_PricePredict(TestCase):
         end_date = "2023-12-31"
 
         # Load data from Yahoo Finance
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        data, features = pp.fetch_data_yahoo(ticker, date_start=start_date, date_end=end_date)
         self.assertGreaterEqual(len(data), 1, "data: Wrong length")
 
         # Aggregate the data
@@ -583,7 +583,7 @@ class Test_PricePredict(TestCase):
         pp = PricePredict(model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
         start_date = "2020-01-01"
         end_date = "2023-12-31"
-        data, features = pp.fetch_data_yahoo("AAPL", start_date, end_date)
+        data, features = pp.fetch_data_yahoo("AAPL", date_start=start_date, date_end=end_date)
         self.assertGreaterEqual(len(data), 1, "data: Wrong length")
 
         aug_data, features, targets, dates_data = pp.augment_data(data, features)
@@ -602,7 +602,7 @@ class Test_PricePredict(TestCase):
         ticker = "AAPL"
         start_date = "2020-01-01"
         end_date = "2023-12-31"
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        data, features = pp.fetch_data_yahoo(ticker, date_start=start_date, date_end=end_date)
         self.assertGreaterEqual(len(data), 1, "data: Wrong length")
 
         # Augment the data with additional indicators/features
@@ -624,7 +624,7 @@ class Test_PricePredict(TestCase):
         ticker = "IBM"
         start_date = "2020-01-01"
         end_date = "2023-12-31"
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        data, features = pp.fetch_data_yahoo(ticker, date_start=start_date, date_end=end_date)
         self.assertGreaterEqual(len(data), 1, "data: Wrong length")
 
         # Augment the data with additional indicators/features
@@ -680,7 +680,7 @@ class Test_PricePredict(TestCase):
 
         # =========================================
         # Load data from Yahoo Finance
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        data, features = pp.fetch_data_yahoo(ticker, date_start=start_date, date_end=end_date)
         self.assertEqual(41, len(data), "data: Wrong length")
         data, features, targets, dates = pp.augment_data(data, features)
         self.assertEqual(19, features, "Wrong feature count")
@@ -739,7 +739,7 @@ class Test_PricePredict(TestCase):
 
         # =========================================
         # Load data from Yahoo Finance...
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        data, features = pp.fetch_data_yahoo(ticker, date_start=start_date, date_end=end_date)
         self.assertEqual(303, len(data), "data: Wrong length")
 
         # Load am existing model file...
@@ -818,7 +818,7 @@ class Test_PricePredict(TestCase):
         pp.batch_size = 1024
         pp.model = None
         # Load and prep data from Yahoo Finance
-        X, y = pp.fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.2)
+        X, y = pp.fetch_n_prep(pp.ticker, date_start=start_date, date_end=end_date, train_split=0.2)
         self.assertEqual(1028, len(X), "X: Wrong length")
         self.assertEqual(1028, len(y), "y: Wrong length")
         # Train the model with hidden laysers
@@ -856,7 +856,7 @@ class Test_PricePredict(TestCase):
         end_date = "2023-12-31"
         pp = PricePredict(ticker, period='W', model_dir='../models/', chart_dir='../charts/', preds_dir='../predictions/')
         # Load and prep data from Yahoo Finance
-        X, y = pp.fetch_n_prep(pp.ticker, start_date, end_date, train_split=0.8)
+        X, y = pp.fetch_n_prep(pp.ticker, date_start=start_date, date_end=end_date, train_split=0.8)
         self.assertEqual(456, len(X), "X: Wrong length")
         self.assertEqual(456, len(y), "y: Wrong length")
         # Train the model
@@ -972,7 +972,7 @@ class Test_PricePredict(TestCase):
         test_ticker = "Test-" + ticker
         start_date = "2020-01-01"
         end_date = "2023-12-31"
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        data, features = pp.fetch_data_yahoo(ticker, date_start=start_date, date_end=end_date)
         self.assertGreaterEqual(len(data), 1, "data: Wrong length")
 
         # Augment the data with additional indicators/features
@@ -1018,7 +1018,7 @@ class Test_PricePredict(TestCase):
 
         start_date = "2020-01-01"
         end_date = "2023-12-31"
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        data, features = pp.fetch_data_yahoo(ticker, date_start=start_date, date_end=end_date)
         self.assertGreaterEqual(len(data), 1, "data: Wrong length")
 
         # Augment the data with additional indicators/features
@@ -1063,7 +1063,7 @@ class Test_PricePredict(TestCase):
         start_date = (datetime.today() - timedelta(days=30)).strftime("%Y-%m-%d")
         # Set the end date to today
         end_date = datetime.today().strftime("%Y-%m-%d")
-        data, features = pp.fetch_data_yahoo(ticker, start_date, end_date, force_fetch=True)
+        data, features = pp.fetch_data_yahoo(ticker, date_start=start_date, date_end=end_date, force_fetch=True)
         if data is None:
             self.assertTrue(data is None, f"No data returned for {ticker} Period {pp.period}")
         else:
@@ -1111,7 +1111,7 @@ class Test_PricePredict(TestCase):
         start_date = "2020-01-01"
         end_date = "2023-12-31"
         # Load data from Yahoo Finance
-        data, features = pp.fetch_data_yahoo("AAPL", start_date, end_date)
+        data, features = pp.fetch_data_yahoo("AAPL", date_start=start_date, date_end=end_date)
         self.assertGreaterEqual(len(data), 1, "data: Wrong length")
 
         # Augment the data
@@ -1136,7 +1136,7 @@ class Test_PricePredict(TestCase):
 
         # Train the model
         model, y_pred, mse = pp.train_model(X, y)
-        self.assertIsNotNone(model, "model: Wrong length")
+        self.assertIsNotNone(model, "model: Was not returned (None)")
 
         # Predict some prices
         X_test = pp.X_test
@@ -1340,9 +1340,9 @@ class Test_PricePredict(TestCase):
         mdl_end_date = "2024-07-30"
 
         # Train and test the model
-        model = pp.fetch_train_and_predict(ticker,
-                                           mdl_start_date, mdl_end_date,
-                                           start_date, end_date)
+        model = pp.fetch_train_and_predict(ticker=ticker,
+                                           train_date_start=mdl_start_date, train_date_end=mdl_end_date,
+                                           pred_date_start=start_date, pred_date_end=end_date)
         self.assertIsNotNone(model, "train_and_test: Returned None")
         if pp.adj_pred is not None and pp.adj_pred_close is not None:
             success = True
@@ -1415,9 +1415,9 @@ class Test_PricePredict(TestCase):
         ticker2 = "TSLA"
         start_date = "2020-01-01"
         end_date = "2023-12-31"
-        data1, features1 = pp1.fetch_data_yahoo(ticker1, start_date, end_date)
+        data1, features1 = pp1.fetch_data_yahoo(ticker1, date_start=start_date, date_end=end_date)
         self.assertGreaterEqual(1042, len(data1), "data1: Wrong length")
-        data2, features2 = pp2.fetch_data_yahoo(ticker2, start_date, end_date)
+        data2, features2 = pp2.fetch_data_yahoo(ticker2, date_start=start_date, date_end=end_date)
         self.assertGreaterEqual(1042, len(data2), "data2: Wrong length")
 
         # Perform the corr analysis
@@ -1488,7 +1488,7 @@ class Test_PricePredict(TestCase):
 
         # =========================================
         # Load data from Yahoo Finance
-        data1, features1 = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        data1, features1 = pp.fetch_data_yahoo(ticker, date_start=start_date, date_end=end_date)
         self.assertGreaterEqual(2500, len(data1), "data1: Wrong length")
 
         # Perform the seasonality analysis

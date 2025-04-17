@@ -7,25 +7,15 @@ and train an LSTM model to predict the price of a stock.
 See tests for examples of how to use this class.
 
 """
-import asyncio
 import datetime
 import time
-import ipywidgets as widgets
-import keras
-import math
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 import mplfinance as mpf
 import numpy as np
 import os
-import sys
 import pandas as pd
 import pandas_ta as ta
-import pydot
 import re
-import seaborn
-import shap
-import sklearn as skl
 import sys
 import tensorflow as tf
 import yfinance as yf
@@ -33,44 +23,30 @@ import yfinance_cache as yfc
 import logging
 import statsmodels.api as sm
 import json
-import jsonify
-import pydantic
 import lzma
 import dill
+import pymc as pm
+import arviz as az
+import tf_keras as keras
 
 from typing import Callable
-from dataclasses import dataclass
 from decimal import Decimal
 from io import StringIO
-from ipywidgets import Output
-from keras.callbacks import History
-from keras import optimizers
-from keras.callbacks import CSVLogger
-from keras.layers import Dense
-from keras.layers import Dense, Dropout, LSTM, Input, Activation, concatenate
-from keras.layers import Dropout
-from keras.layers import LSTM
-from keras.layers import TimeDistributed
-from keras.models import Model
-from keras.models import Sequential
-from keras.utils import plot_model
-from keras.callbacks import EarlyStopping
+from tf_keras.layers import Dense, LSTM, Input, Activation
+from tf_keras.models import Model
+from tf_keras.optimizers import Adam
+from tf_keras.callbacks import CSVLogger, EarlyStopping, TensorBoard
+from tf_keras.utils import plot_model
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
-from IPython.display import Image
 from datetime import datetime, timedelta
-from pydantic import BaseModel, Field
-from pydantic import validate_arguments
-from typing import Any, Dict, List, Optional, Union
 from groq import Groq
 from bayes_opt import BayesianOptimization
 from silence_tensorflow import silence_tensorflow
 from statsmodels.tsa.stattools import coint
-from tensorboard.plugins.hparams import api as hp
 
-from tensorflow.keras.callbacks import TensorBoard
-
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 # 0 = all messages are logged (default behavior)
@@ -296,6 +272,7 @@ class PricePredict():
         # Training Parameters
         self.shuffle = shuffle  # Shuffle the data for training the model.
         self.train_split = train_split  # The validation split used during training.
+        self.split_limit = None  # Derived as the len(data_) * train_split(%) before training
         self.batch_size = batch_size  # The batch size for training the model.
         self.epochs = epochs  # The number of epochs for training the model.
         self.keras_callbacks = keras_callbacks  # The keras callbacks for training the model.
@@ -549,7 +526,10 @@ class PricePredict():
         self.orig_downloaded_data = None
         self.missing_rows_analysis = None
 
-    def fetch_data_yahoo(self, ticker, date_start, date_end, period=None, force_fetch=False):
+    def fetch_data_yahoo(self, ticker: str = None,
+                         period: str = None,
+                         date_start: str = None, date_end: str = None,
+                         force_fetch=False):
         """
         Load data from Yahoo Finance.
         Caveats: Yahoo download data may not be the same as the original data from the exchange.
@@ -563,8 +543,8 @@ class PricePredict():
         :param date_end:
 
         - Optional
-        :param period:      # The period for the data (D, W)
-        :force_fetch:       # Force the fetch of the data from Yahoo Finance
+        :option period:      # The period for the data (D, W)
+        :parameter force_fetch:       # Force the fetch of the data from Yahoo Finance
 
         - Returns:
         :return:
@@ -573,6 +553,10 @@ class PricePredict():
         """
 
         xyf = self.yf
+
+        if ticker is None:
+            ticker = self.ticker
+
         # Check if ticker begins with '^'
         if ticker[0] == '^' and self.yf_cached:
             # Don't use yfinance_cache for indexes.
@@ -657,7 +641,7 @@ class PricePredict():
         while True:
             try:
                 if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
-                    net_data = xyf.download(tickers=f_ticker, start=date_start, end=date_end)
+                    net_data = xyf.download(tickers=[f_ticker], start=date_start, end=date_end)
                 else:
                     net_data = xyf.download(tickers=f_ticker, start=date_start, end=date_end, interval=self.period)
                 break
@@ -714,7 +698,7 @@ class PricePredict():
         # Step 2: Count the number of missing rows
         missing_rows = missing_rows_mask.sum()
         # Group by month to get the distribution
-        missing_distribution = missing_rows_mask.groupby(pd.Grouper(freq='ME')).sum()
+        missing_distribution = missing_rows_mask.groupby(pd.Grouper(freq='M')).sum()
         # Make sure that the 'Adj Close' column exists.
         if 'Adj Close' not in interpolated_data.columns:
             interpolated_data['Adj Close'] = interpolated_data['Close']
@@ -1611,6 +1595,7 @@ class PricePredict():
         split_limit = int(len(X) * train_split)
 
         self.split_limit = split_limit
+
         self.back_candles = backcandles
 
         if shuffle is None and self.shuffle is not None:
@@ -1664,7 +1649,7 @@ class PricePredict():
             inputs = Dense(self.targets, name='dense_layer')(inputs)
             output = Activation('linear', name='output')(inputs)
             model = Model(inputs=lstm_input, outputs=output)
-            adam = optimizers.Adam(learning_rate=adam_learning_rate)
+            adam = Adam(learning_rate=adam_learning_rate)
             model.compile(optimizer=adam, loss='mse', metrics=['mae', 'mse', 'accuracy'])
             self.logger.debug(f'Created new model: {model.summary()}')
         else:
@@ -1821,7 +1806,7 @@ class PricePredict():
         inputs = Dense(self.targets, name='dense_layer')(inputs)
         output = Activation('linear', name='output')(inputs)
         model = Model(inputs=lstm_input, outputs=output)
-        adam = optimizers.Adam(learning_rate=adam_learning_rate)
+        adam = Adam(learning_rate=adam_learning_rate)
         # Use Mean Squared Error as the loss metric.
         # model.compile(optimizer=adam, loss='mse', metrics=['mae', 'mse', 'accuracy', trend_direction_accuracy])
         # Use the custom metric for trend direction accuracy.
@@ -1888,6 +1873,10 @@ class PricePredict():
 
     def bayesian_optimization(self, X, y,
                               keras_callbacks=None,
+                              # Bayesian Optimization Parameters
+                              opt_max_init = 10,
+                              opt_max_iter = 20,
+                              opt_csv=None,                  # File to save the optimization results
                               # Hyperparameter Ranges
                               pb_lstm_units: tuple = None,            # Default 256
                               pb_lstm_dropout: tuple = None,          # Default 0.5
@@ -1899,9 +1888,6 @@ class PricePredict():
                               pb_hidden_layer_units_2: tuple = None,  # Default None
                               pb_hidden_layer_units_3: tuple = None,  # Default None
                               pb_hidden_layer_units_4: tuple = None,  # Default None
-                              opt_max_init = 10,
-                              opt_max_iter = 20,
-                              opt_csv=None,                  # File to save the optimization results
                               ):
         """
         Perform Bayesian Optimization on the model.
@@ -2269,6 +2255,7 @@ class PricePredict():
         target_high = target_high[-min_len:]
         pred_adj_high = [target_high[i] + abs(pred_delta_h[i]) for i in range(0, len(pred_delta_h))]
 
+
         #    -- Adjusted Close Prediction should not be higher than Adjusted High Prediction
         pred_adj_close = [pred_adj_close[i] if pred_adj_close[i] < pred_adj_high[i] else pred_adj_high[i]
                           for i in range(0, len(pred_adj_close))]
@@ -2311,6 +2298,107 @@ class PricePredict():
         self.adj_pred_low = pred_adj_low  # Adjusted low
 
         return pred_adj_close, pred_adj_high, pred_adj_low
+
+    def mcmc_process_data(self, data, plot_trace=False):
+        """
+        MCMC:  Markov Chain Monte Carlo
+        This function preprocesses the data and defines the Bayesian AR(1) model.
+        """
+        # Step 2: Preprocess Data
+        data['LogReturn'] = np.log(data['Close'] / data['Close'].shift(1))
+        data.dropna(inplace=True)
+
+        # Step 3: Define Bayesian AR(1) Model
+        # AR(1) Autoregressive Model of order 1
+        with pm.Model() as model:
+            # Priors for the parameters
+            mu = pm.Normal('mu', mu=0, sigma=0.1)
+            phi = pm.Normal('phi', mu=0, sigma=1)
+            sigma = pm.HalfNormal('sigma', sigma=0.1)
+
+            # Observed data
+            start_obs = -7
+            Y_t = data['LogReturn'].values[:start_obs]  # Current returns
+            Y_tm1 = data['LogReturn'].values[:-1]  # Previous returns
+
+            # Expected value of the current return
+            mu_Y_t = mu + phi * (Y_tm1 - mu)
+
+            # Likelihood: Model the current return given the previous return
+            Y_obs = pm.Normal('Y_obs', mu=mu_Y_t, sigma=sigma, observed=Y_t)
+
+        # Step 4: Sample from Posterior
+        with model:
+            trace = pm.sample(2000, tune=1000, target_accept=0.95, return_inferencedata=True)
+
+        if plot_trace:
+            # Check Trace Plots
+            az.plot_trace(trace)
+            plt.show()
+
+        return data, Y_t, Y_tm1, mu_Y_t, trace
+
+    def mcmc_forecast_returns(self, trace, last_return, steps=30):
+        """
+        MCMC:  Markov Chain Monte Carlo
+        This function forecasts future returns and prices using the Bayesian AR(1) model.
+        AR(1): Autoregressive Model of order 1
+        """
+        # Step 5: Forecast Future Returns and Prices
+        mu_samples = trace.posterior['mu'].values.flatten()
+        phi_samples = trace.posterior['phi'].values.flatten()
+        sigma_samples = trace.posterior['sigma'].values.flatten()
+
+        n_samples = len(mu_samples)
+        forecasts = np.zeros((n_samples, steps))
+
+        for i in range(n_samples):
+            mu_i = mu_samples[i]
+            phi_i = phi_samples[i]
+            sigma_i = sigma_samples[i]
+            ret = last_return
+            for t in range(steps):
+                eps = np.random.normal(0, sigma_i)
+                ret = mu_i + phi_i * (ret - mu_i) + eps
+                forecasts[i, t] = ret
+        return forecasts
+
+    def mcmc_forecast_prices(self, show_plot=False):
+        """
+        MCMC:  Markov Chain Monte Carlo
+        AR(1): Autoregressive Model of order 1
+        This function forecasts future stock prices using the Bayesian AR(1) model.
+        """
+        data, features = self.fetch_data_yahoo()
+        data, Y_t, Y_tm1, mu_Y_t, trace = self.mcmc_process_data(data)
+        last_return = data['LogReturn'].values[-1]
+        forecast_steps = 30
+        forecasts = self.mcmc_forecast_returns(trace, last_return, steps=forecast_steps)
+
+        # Convert to Prices
+        last_price = data['Close'].values[-1]
+        price_forecasts = last_price * np.exp(np.cumsum(forecasts, axis=1))
+        median_forecast = np.median(price_forecasts, axis=0)
+        # Get the 94% Highest Density Interval, given the probability of hdi_prob.
+        # hpd_interval = az.hdi(price_forecasts, hdi_prob=0.94)
+        hpd_interval = az.hdi(price_forecasts, hdi_prob=0.30)
+
+        # Step 6: Visualize Forecast
+        forecast_dates = pd.date_range(start=data.index[-1], periods=forecast_steps + 1, freq='B')[1:]
+        if show_plot:
+            plt.figure(figsize=(12, 6))
+            plt.plot(data.index[-100:], data['Close'].values[-100:], label='Historical Prices')
+            plt.plot(forecast_dates, median_forecast, label='Median Forecast')
+            plt.fill_between(forecast_dates, hpd_interval[:, 0], hpd_interval[:, 1],
+                             color='gray', alpha=0.5, label='94% Credible Interval')
+            plt.title('Forecasted Stock Prices for {}'.format(symbol))
+            plt.xlabel('Date')
+            plt.ylabel('Price')
+            plt.legend()
+            plt.show()
+
+        # Return data that will be used to generate the forecast chart
+        return forecast_dates, median_forecast, hpd_interval
 
     def gen_prediction_chart(self, last_candles=50,
                              file_path=None,
@@ -2599,7 +2687,7 @@ class PricePredict():
             self.back_candles = backcandles
 
         # Load data from Yahoo Finance
-        orig_data, features = self.fetch_data_yahoo(ticker, date_start, date_end, period)
+        orig_data, features = self.fetch_data_yahoo(ticker=ticker, period=period, date_start=date_start, date_end=date_end)
         # Augment the data with technical indicators/features and targets
         aug_data, features, targets, dates_data = self.augment_data(orig_data, features)
         # Scale the data
@@ -3145,6 +3233,7 @@ class PricePredict():
             # Initially assume that we will use all the data
             # - Convert start_date to a datetime object
             start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            end_date = None
             if period_len is None:
                 end_date = datetime.now().strftime("%Y-%m-%d").strftime("%Y-%m-%d")
             else:
@@ -3154,8 +3243,8 @@ class PricePredict():
                 elif self.period == PricePredict.PeriodWeekly:
                     end_date = (start_dt + timedelta(weeks=period_len)).strftime("%Y-%m-%d")
             # Load the data from Yahoo Finance
-            self_data, feature_cnt = self.fetch_data_yahoo(self.ticker, start_date, end_date)
-            ppo_data, feature_cnt = ppo.fetch_data_yahoo(ppo.ticker, start_date, end_date)
+            self_data, feature_cnt = self.fetch_data_yahoo(ticker=self.ticker, date_start=start_date, date_end=end_date)
+            ppo_data, feature_cnt = ppo.fetch_data_yahoo(ticker=ppo.ticker, date_start=start_date, date_end=end_date)
             if self_data is None or ppo_data is None:
                 e_txt = f"Error: Could not load the data for correlation analysis."
                 self.logger.error(e_txt)
@@ -3176,10 +3265,10 @@ class PricePredict():
             ppo_start_dt = ppo.date_start
             ppo_end_dt = ppo.date_end
             if self_data is None or needed_start_dt != self_start_dt or needed_end_dt != self_end_dt:
-                self_data, feature_cnt = self.fetch_data_yahoo(self.ticker, needed_start_dt, needed_end_dt)
+                self_data, feature_cnt = self.fetch_data_yahoo(ticker=self.ticker, date_start=needed_start_dt, date_end=needed_end_dt)
                 self_data = self.orig_data
             if ppo_data is None or needed_start_dt != ppo_start_dt or needed_end_dt != ppo_end_dt:
-                ppo_data, feature_cnt = ppo.fetch_data_yahoo(ppo.ticker, needed_start_dt, needed_end_dt)
+                ppo_data, feature_cnt = ppo.fetch_data_yahoo(ticker=ppo.ticker, date_start=needed_start_dt, date_end=needed_end_dt)
                 ppo_data = ppo.orig_data
             self_start_dt = self.date_start
             self_end_dt = self.date_end
@@ -3512,7 +3601,7 @@ class PricePredict():
             self.logger.info(f"*** Not enough data to perform seasonality analysis. sd_period_len[{sd_period_len}]")
             self.logger.info(f"*** Downloading more data to perform the analysis.")
             # Set date_start to 2 years before today's date aligned to a Monday
-            self.fetch_data_yahoo(self.ticker, self.date_start, self.date_end, self.period)
+            self.fetch_data_yahoo(ticker=self.ticker, period=self.period, date_start=self.date_start, date_end=self.date_end)
 
         data = self.orig_data
 
@@ -3571,7 +3660,7 @@ class PricePredict():
         return lzma.compress(dill.dumps(obj))
 
     @staticmethod
-    def unserialize(obj, ignore: bool = None):
+    def unserialize(obj, ignore: bool = False):
 
         if ignore is None and ignore is False:
             # But default use the current PricePredict Module
