@@ -999,12 +999,12 @@ def display_symbol_charts(interactive_charts=True):
 
                 col2.markdown('**Top 10 Correlated**')
                 df_to10corr = pd.DataFrame(data=pp.top10corr, columns=['Sym', 'Corr'])
-                styl_to10corr = df_to10corr.style.set_properties(**{'border': '1px solid #ccc'})
+                styl_to10corr = df_to10corr.style.format({'Corr': '{:.4f}'}).set_properties(**{'border': '1px solid #ccc'})
                 col2.table(styl_to10corr)
 
                 col3.markdown('**Top 10 X-Correlated**')
                 df_to10xcorr = pd.DataFrame(data=pp.top10xcorr, columns=['Sym', 'xCorr'])
-                styl_to10xcorr = df_to10xcorr.style.set_properties(**{'border': '1px solid #ccc'})
+                styl_to10xcorr = df_to10xcorr.style.format({'xCorr': '{:.4f}'}).set_properties(**{'border': '1px solid #ccc'})
                 col3.table(styl_to10xcorr)
 
                 if img_sym in st.session_state[ss_SymDpps_d]:
