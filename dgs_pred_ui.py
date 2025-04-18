@@ -34,6 +34,7 @@ import re
 import io
 import concurrent.futures as cf
 import objgraph
+import numpy as np
 
 import line_profiler
 from line_profiler import profile, LineProfiler
@@ -1615,6 +1616,9 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
                 all_df_symbols.loc[indx, 'LongName'] = lname
             d_trend = 'D:'
             if pp.pred_strength is not None:
+                if str(type(pp.pred_strength)) == "<class 'numpy.ndarray'>":
+                    mylogger.debug(f"pred_strength is a numpy array: {pp.pred_strength[:3]}")
+                    pp.pred_strength = pp.pred_strength[0]
                 if abs(pp.pred_strength) < 0.5:
                     d_trend += 'f'
                 elif pp.pred_strength < 0:
@@ -1663,6 +1667,9 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
                 all_df_symbols.loc[indx, 'LongName'] = lname
             w_trend = 'W:'
             if pp.pred_strength is not None:
+                if str(type(pp.pred_strength)) == "<class 'numpy.ndarray'>":
+                    mylogger.debug(f"pred_strength is a numpy array: {pp.pred_strength[:3]}")
+                    pp.pred_strength = pp.pred_strength[0]
                 if abs(pp.pred_strength) < 0.5:
                     w_trend += 'f'
                 elif pp.pred_strength < 0:
@@ -1743,7 +1750,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
             # Load up the data for the target symbol if it does not have enough data points
             end_date = datetime.now().strftime("%Y-%m-%d")
             start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
-            target_sym.fetch_data_yahoo(target_sym.ticker, start_date, end_date, target_sym.period)
+            target_sym.fetch_data_yahoo(ticker=target_sym.ticker, period=target_sym.period, date_start=start_date, date_end=end_date)
 
         if target_sym.orig_data is None or len(target_sym.orig_data) < min_data_points:
             len_ = None
@@ -1771,7 +1778,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
                     # Load up the data for the target symbol if it does not have enough data points
                     end_date = datetime.now().strftime("%Y-%m-%d")
                     start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
-                    source_sym.fetch_data_yahoo(source_sym.ticker, start_date, end_date, source_sym.period)
+                    source_sym.fetch_data_yahoo(ticker=source_sym.ticker, date_start=start_date, date_end=end_date, period=source_sym.period)
 
                 if source_sym.orig_data is None or len(source_sym.orig_data) < min_data_points:
                     len_ = None
@@ -2013,7 +2020,7 @@ def do_bayes_opt(in_ticker, pp_obj=None, opt_csv=None,
     pred_start_date = pred_start_dt.strftime("%Y-%m-%d")
 
     if only_fetch_opt_data:
-        data, pp.features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        data, pp.features = pp.fetch_data_yahoo(ticker=ticker, date_start=start_date, date_end=end_date)
 
         # Augment the data with additional indicators/features
         if data is None:

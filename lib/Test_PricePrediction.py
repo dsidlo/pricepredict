@@ -30,7 +30,7 @@ class Test_PricePredict(TestCase):
     @staticmethod
     def _create_test_model(this_test, pp, ticker, test_ticker, mdl_start_date, mdl_end_date):
 
-        data, features = pp.fetch_data_yahoo(ticker, date_start=mdl_start_date, date_end=mdl_end_date)
+        data, features = pp.fetch_data_yahoo(ticker=ticker, date_start=mdl_start_date, date_end=mdl_end_date)
         this_test.assertGreaterEqual(len(data), 1, "data: Wrong length")
 
         # Augment the data with additional indicators/features

@@ -63,7 +63,7 @@ def main():
     plot_predictions(pp, pred_start_date, pred_end_date)
 
     # Get the list of testings dates
-    pp.fetch_data_yahoo(ticker, test_start_date_str, test_end_date_str)
+    pp.fetch_data_yahoo(ticker=ticker, date_start=test_start_date_str, date_end=test_end_date_str)
     dates_list = list(pp.date_data[:len(pp.adj_pred_close)])
 
     cnt = 0

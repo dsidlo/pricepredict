@@ -568,7 +568,7 @@ class PricePredict():
             if period not in PricePredict.PeriodValues:
                 self.logger.error(
                     f"*** Exception: [{ticker}]: period[{period}] must be \"{'"| "'.join(PricePredict.PeriodValues)}\"")
-                raise ValueError(f"period[{period}]: man only be \"{'", "'.join(PricePredict.PeriodValues)}\"")
+                raise ValueError(f"period[{period}]: may only be \"{'", "'.join(PricePredict.PeriodValues)}\"")
             self.period = period
 
         if self.verbose:
@@ -698,7 +698,7 @@ class PricePredict():
         # Step 2: Count the number of missing rows
         missing_rows = missing_rows_mask.sum()
         # Group by month to get the distribution
-        missing_distribution = missing_rows_mask.groupby(pd.Grouper(freq='M')).sum()
+        missing_distribution = missing_rows_mask.groupby(pd.Grouper(freq='ME')).sum()
         # Make sure that the 'Adj Close' column exists.
         if 'Adj Close' not in interpolated_data.columns:
             interpolated_data['Adj Close'] = interpolated_data['Close']
@@ -1141,7 +1141,8 @@ class PricePredict():
         model_path = self.model_dir + model_path
         # Find all .keras model files in the model directory that start with the ticker.
         try:
-            model_files = [f for f in os.listdir(self.model_dir) if ticker in f and f.endswith('.keras')]
+            # Match files that start with the ticker and end with .keras
+            model_files = [f for f in os.listdir(self.model_dir) if f.split('_')[0] == ticker and f.endswith('.keras')]
         except Exception as e:
             self.logger.error(f"Exception: Getting model files: {e}")
             # No model files found.
@@ -1566,6 +1567,8 @@ class PricePredict():
             if hidden_layers is None:
                 if 'hidden_layers' in self.bayes_opt_hypers['params']:
                     hidden_layers = int(round(self.bayes_opt_hypers['params']['hidden_layers']))
+                else:
+                    hidden_layers = 0
             if hidden_layer_units is None:
                 hul_arry = ['hidden_layer_units_0', 'hidden_layer_units_1', 'hidden_layer_units_2',]
                 hidden_layer_units = []
@@ -2062,19 +2065,21 @@ class PricePredict():
         model_path = model_path.replace('=', '~')
 
         i = 0
-        while i <= 3:
+        max_tries = 10
+        while i <= max_tries:
             i += 1
             try:
                 # Save the model...
-                model.save(model_path)
+                self.logger.debug(f"Saving model to [{model_path}]")
+                model.save(model_path, save_format='keras_v3')
             except Exception as e:
-                if i < 3:
+                if i <= max_tries:
                     self.logger.warn(f"Warning: Failed to Save model [{i}] [{model_path}]\n{e}, will retry...")
                     time.sleep(2)
                     continue
                 else:
-                    self.logger.error(f"Error: Saving model [{model_path}]\n{e}")
-                    raise ValueError(f"Error: Saving model [{model_path}]\n{e}")
+                    self.logger.error(f"Error: Saving model [{model_path}] Tried [{i}] times\n{e}")
+                    raise ValueError(f"Error: Saving model [{model_path}] Tried [{i}] times\n{e}")
 
         self.ticker = ticker
         self.model_path = model_path
@@ -2086,7 +2091,7 @@ class PricePredict():
                       start_date: str = None, end_date: str = None):
         """
         Predict the next price.
-        If  X_data is None, then fetch the require data from Yahoo Finance and pre-process it.
+        If  X_data is None, then fetch the required data from Yahoo Finance and pre-process it.
         After predicting the price, adjust the prediction and perform an analysis on the prediction.
 
         :parameters:
@@ -2558,6 +2563,10 @@ class PricePredict():
     def save_prediction_data(self, file_path=None, last_candles=None):
         # Copy from the original data the OHLCV data for the prediction period...
         # df_ohlcv Will have an 'Date' as it's index...
+        if self.pred is None:
+            self.logger.error("Error: No prediction data to save.")
+            raise ValueError("Error: No prediction data to save.")
+
         if 'Close' in self.orig_data.columns:
             df_ohlcv = pd.DataFrame(self.orig_data[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]).tail(
                 len(self.pred) - 1)
@@ -3143,6 +3152,9 @@ class PricePredict():
             self.pred_strength = np.round((self.pred_rank + (self.season_rank * self.season_corr)) / 20, 4)
             analysis['pred_strength'] = {
                 'strength': f'{self.pred_strength}'}
+            if str(type(self.pred_strength)) == "<class 'numpy.ndarray'>":
+                self.logger.debug(f"pred_strength is a numpy array: {self.pred_strength[:3]}")
+                self.pred_strength = self.pred_strength[0]
 
         self.analysis = analysis
 

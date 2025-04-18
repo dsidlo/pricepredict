@@ -193,7 +193,7 @@ def create_ppos(symbols: [str]):
 
         # Fetch data for the ppo
         try:
-            ppo.fetch_data_yahoo(ppo.ticker, start_date, end_date)
+            ppo.fetch_data_yahoo(ticker=ppo.ticker, date_start=start_date, date_end=end_date)
         except Exception as e:
             print(f'Error fetching data for {sym}')
             continue

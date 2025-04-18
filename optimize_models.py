@@ -44,7 +44,7 @@ def tst_bayes_opt(in_ticker, pp_obj=None, opt_csv=None,
     pred_end_date = "2024-10-25"
 
     if only_fetch_opt_data:
-        data, pp.features = pp.fetch_data_yahoo(ticker, start_date, end_date)
+        data, pp.features = pp.fetch_data_yahoo(ticker=ticker, date_start=start_date, date_end=end_date)
 
         # Augment the data with additional indicators/features
         if data is None:
