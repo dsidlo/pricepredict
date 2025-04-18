@@ -983,24 +983,29 @@ def display_symbol_charts(interactive_charts=True):
             else:
                 pp = st.session_state[ss_SymDpps_d][img_sym]
                 expdr_corr = st.expander("**Correlations**", expanded=False)
-                col1, col2, col3 = expdr_corr.columns(3)
+                col1, col2, col3 = expdr_corr.columns([4,3,3])
 
                 col1.markdown('**Top 10 Cointegrated**')
-                df_to10coint = pd.DataFrame(data=pp.top10coint, columns=['Symbol', 'Pair'])
-                styl_to10coint = df_to10coint.style.set_properties(**{'boarder': '2px solid #ccc'})
+                st.markdown("""
+                <style>
+                [data-testid="stDataFrameResizable"] td {
+                    font-size: 8px;
+                }
+                </style>
+                """, unsafe_allow_html=True)
+                df_to10coint = pd.DataFrame(data=pp.top10coint, columns=['Sym', 'Pair'])
+                styl_to10coint = df_to10coint.style.set_properties(**{'border': '1px solid #ccc'})
                 col1.table(styl_to10coint)
 
                 col2.markdown('**Top 10 Correlated**')
-                df_to10corr = pd.DataFrame(data=pp.top10corr, columns=['Symbol', 'Correlated'])
-                styl_to10corr = df_to10corr.style.set_properties(**{'boarder': '2px solid #ccc'})
+                df_to10corr = pd.DataFrame(data=pp.top10corr, columns=['Sym', 'Corr'])
+                styl_to10corr = df_to10corr.style.set_properties(**{'border': '1px solid #ccc'})
                 col2.table(styl_to10corr)
-                # col1.table(pp.top10corr)
 
                 col3.markdown('**Top 10 X-Correlated**')
-                df_to10xcorr = pd.DataFrame(data=pp.top10xcorr, columns=['Symbol', 'xCorrelated'])
-                styl_to10xcorr = df_to10xcorr.style.set_properties(**{'boarder': '2px solid #ccc'})
+                df_to10xcorr = pd.DataFrame(data=pp.top10xcorr, columns=['Sym', 'xCorr'])
+                styl_to10xcorr = df_to10xcorr.style.set_properties(**{'border': '1px solid #ccc'})
                 col3.table(styl_to10xcorr)
-                # col2.table(pp.top10xcorr)
 
                 if img_sym in st.session_state[ss_SymDpps_d]:
                     pp = st.session_state[ss_SymDpps_d][img_sym]
