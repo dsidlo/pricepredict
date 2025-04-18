@@ -1516,7 +1516,7 @@ class Test_PricePredict(TestCase):
 
         # =========================================
         # First we need to create a model file
-        ticker = "AAPL"
+        ticker = "NVDA"
 
         pp.ticker = ticker
         pp.groq_sentiment()

@@ -3452,6 +3452,7 @@ class PricePredict():
         # balance_sheet = stock.balance_sheet
         balance_sheet = stock.quarterly_balance_sheet
         income_statement = stock.financials
+        stock_info = stock.info
         # print("=== Balance Sheets ===")
         # print(balance_sheet)
         # print("\n\n=== Income Statements ===")
@@ -3459,99 +3460,148 @@ class PricePredict():
 
         # Send an API call to GROQ LLM to perform sentiment analysis on the balance sheet data
         client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+        messages = [
+            {
+                "role": "user",
+                "content": f'''
+                 <promptInputs>
+                     <Purpose>
+                     Please perform a critical analyze the following balance sheets and income statements and 
+                     stock-info. 
+                     Give me a review of the company from a financial perspective and be critical of values from 
+                     period to period and consider if missing values indicate mis-reporting of data. And, add a
+                     summary of sentiment analysis of the company from the viewpoint of board members, from the
+                     viewpoint of shareholders, and from the viewpoint of short sellers. Finally, create a
+                     sentiment analysis score for the company from 1 to 5, where 1 is very negative and 5 is
+                     very positive. Separate each section into its json attribute.
+                     Please, place the correctly formatted JSON output between the "<JsonOutputFormat>" and
+                     "</JsonOutputFormat>" tags, at the start of the response.
+                     Please, place the sentiment text output between the "<sentimentTextOutput>" and 
+                     "</sentimentTextOutput>" tags, at a the end of the response.
+                     </Purpose>
+                     <BalanceSheet>
+                     {balance_sheet}
+                     </BalanceSheet>
+                     <IncomeStatements> 
+                     {income_statement}
+                     </IncomeStatements>
+                     <stockInfo>
+                     {stock_info}
+                     </stockInfo>   
+                 </promptInputs>
+                 <exampleOutput>
+                     <sentimentTextOutput> 
+                     Here's a breakdown of the analysis:
+
+                     **Balance Sheet Analysis**
+
+                     * Treasury shares number: No change, as NaN values are present.
+                     * Ordinary shares number: Stable, with no significant changes.
+                     * Net debt: Increased significantly, which may be a concern.
+                     * Cash and cash equivalents: Increased significantly, indicating sufficient liquidity.
+
+                     **Income Statement Analysis**
+
+                     * Net income from continuing operation net minority interest: Increased significantly, a positive sign.
+                     * EBITDA: Consistently positive, indicating a healthy operating performance.
+                     * Interest expense: Decreasing, which is a positive trend.
+                     * Research and development expenses: Increasing, which may be a strategic investment for future growth.
+
+                     **Financial Health Analysis**
+
+                     * Current Stock Price & Trading Activity: 
+                        <<Based on: Real-time/Recent Price: currentPrice, regularMarketPrice, open, dayHigh, dayLow, previousClose, regularMarketOpen/High/Low/PreviousClose, postMarketPrice. * Trading Volume & Liquidity: volume, regularMarketVolume, averageVolume, averageVolume10days, averageDailyVolume10Day, averageDailyVolume3Month. (Compare current volume to averages). * Bid/Ask Spread: bid, ask, bidSize, askSize (Indicates immediate liquidity and transaction cost). * Market Context: marketState, exchange, currency, quoteType, tradeable.>>
+
+                     * Valuation Metrics: 
+                        <<Based on: Price-to-Earnings (P/E): trailingPE, forwardPE. (Compare historical earnings vs. future expectations). * Price-to-Book (P/B): priceToBook, bookValue. (Value relative to net assets). * Price-to-Sales (P/S): priceToSalesTrailing12Months. (Value relative to revenue, useful for unprofitable companies). * Enterprise Value Multiples: enterpriseToRevenue, enterpriseToEbitda. (Value including debt, often preferred for comparisons). * Market Capitalization: marketCap. (Overall market value of equity).>>
+
+                     * Dividend Analysis: 
+                        <<Based on: Dividend Payment: dividendRate, dividendYield, trailingAnnualDividendRate, trailingAnnualDividendYield, fiveYearAvgDividendYield, lastDividendValue. (Income potential). * Dividend Sustainability: payoutRatio. (Percentage of earnings paid out as dividends). * Timing: exDividendDate, lastDividendDate, dividendDate.>>
+
+                     * Financial Health & Profitability: 
+                        <<Based on: Liquidity: currentRatio, quickRatio, totalCash, totalCashPerShare. (Ability to meet short-term obligations). * Leverage: totalDebt, debtToEquity. (Amount of debt relative to equity). * Profitability: profitMargins, grossMargins, ebitdaMargins, operatingMargins, netIncomeToCommon, grossProfits, trailingEps, forwardEps, ebitda. * Efficiency/Returns: returnOnAssets, returnOnEquity. * Cash Flow: operatingCashflow, freeCashflow. (Actual cash generated by the business).>>
+
+                     * Growth Analysis: 
+                        <<Based on: Earnings Growth: earningsGrowth, earningsQuarterlyGrowth. * Revenue Growth: revenueGrowth. * EPS Trend: Compare trailingEps vs. forwardEps.>>
+
+                     * Analyst Opinions & Price Targets: 
+                        <<Based on: Overall Sentiment: recommendationMean (e.g., 1=Strong Buy, 5=Strong Sell), recommendationKey, averageAnalystRating. * Price Expectations: targetHighPrice, targetLowPrice, targetMeanPrice, targetMedianPrice. (Range and consensus target). * Coverage: numberOfAnalystOpinions. (How many analysts follow the stock).>>
+
+                     * Volatility & Risk: 
+                        <<Based on: Market Volatility: beta. (Stock's volatility relative to the overall market). * Price Range: fiftyTwoWeekLow, fiftyTwoWeekHigh, fiftyTwoWeekRange. (Historical price volatility over the year). * Specific Risks: auditRisk, boardRisk, compensationRisk, shareHolderRightsRisk, overallRisk. (Flags from the data provider, definitions may vary).>>
+
+                     * Trend Analysis (Relative to Averages): 
+                        <<Based on: Short/Medium Term Trend: Compare currentPrice to fiftyDayAverage. * Long Term Trend: Compare currentPrice to twoHundredDayAverage. * Percentage Change from Averages: fiftyDayAverageChangePercent, twoHundredDayAverageChangePercent.>>
+
+                     * Corporate Actions: 
+                        <<Based on: Stock Splits: lastSplitFactor, lastSplitDate. * Dividends: (See Dividend Analysis).>>
+
+                     **Critical Analysis**
+
+                     * Missing values: Some incomplete financial statements, which may indicate a lack of transparency or mis-reporting of data.
+                     * Debt level: Increasing, which may be a concern for investors and creditors.
+                     * Tangible book value: No information provided, which makes it difficult to assess the company's financial health.
+                     * Cash convertibility: Sufficient liquidity, as indicated by the increased cash and cash equivalents.
+
+                     **Sentiment Analysis**
+
+                     * Board members: 3 (neutral), as they may be concerned about the increasing debt level but optimistic about the company's growth prospects.
+                     * Shareholders: 3 (neutral), as they may be pleased with the increasing net income but concerned about the debt level and missing values.
+                     * Short sellers: 2 (somewhat negative), as they may be skeptical about the company's ability to sustain its growth and concerned about the increasing debt level.
+                     * Financial analysts: 2 (somewhat negative), as they may be concerned about the company's increasing debt level and missing values in the financial statements. 
+
+                     **Overall Sentiment Score**
+
+                     * 2.67 (somewhat positive), as the company's financial performance is generally positive, but concerns about debt level and missing values exist.
+                     </sentimentTextOutput> 
+                     <JsonOutputFormat> 
+                     {{
+                      "balance_sheet_analysis": {{
+                        "treasury_shares_number": "increased significantly",
+                        "ordinary_shares_number": "increasing",
+                        "net_debt": "increased significantly",
+                        "cash_and_cash_equivalents": "increased significantly"
+                      }},
+                      "income_statement_analysis": {{
+                        "net_income_from_continuing_operation_net_minority_interest": "significant losses",
+                        "ebitda": "consistently negative",
+                        "interest_expense": "increasing",
+                        "research_and_development_expenses": "increasing"
+                      }},
+                      "financial_health_analysis": {{
+                        "current_stock_price_trading_activity": "trading activity summary...",
+                        "valuation_metrics": "valuation metrics summary...",
+                        "dividend_analysis": "dividend analysis summary...",
+                        "financial_health_profitability: "financial health and profitability summary...",
+                        "growth_analysis": "growth analysis summary...",
+                        "analyst_opinions_price_targets": "analyst opinions and price targets summary...",
+                        "volatility_risk": "volatility and risk summary...",
+                        "trend_analysis": "trend analysis summary...",
+                        "corporate_actions": "corporate actions summary...",
+                      }},
+                      "critical_analysis": {{
+                        "missing_values": "incomplete financial statements",
+                        "debt_level": "increasing",
+                        "ebitda": "negative",
+                        "net_income": "significant losses"
+                      }},
+                      "sentiment_analysis": {{
+                        "board_members": 2,
+                        "shareholders": 2,
+                        "short_sellers": 4,
+                        "financial_analysts": 2 
+                      }},
+                      "overall_sentiment_score": 2.33
+                     }}  
+                     </JsonOutputFormat> 
+                 </exampleOutput>
+                 '''
+            }
+        ]
+        # Strip extra spaces from the content
+        messages[0]['content'] = re.sub(r'\s+', ' ', messages[0]['content']).strip()
         chat_completion = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": f'''
-                     <promptInputs>
-                         <Purpose>
-                         Please perform a critical analyze the following balance sheets and income statements and 
-                         give me a review of the company from a financial perspective and be critical of values from 
-                         period to period and consider if missing values indicate mis-reporting of data. And, add a
-                         summary of sentiment analysis of the company from the viewpoint of board members, from the
-                         viewpoint of shareholders, and from the viewpoint of short sellers. Finally, create a
-                         sentiment analysis score for the company from 1 to 5, where 1 is very negative and 5 is
-                         very positive. Separate each section into its json attribute.
-                         Please, place the correctly formatted JSON output between the "<JsonOutputFormat>" and
-                         "</JsonOutputFormat>" tags, at the start of the response.
-                         Please, place the sentiment text output between the "<sentimentTextOutput>" and 
-                         "</sentimentTextOutput>" tags, at a the end of the response.
-                         </Purpose>
-                         <BalanceSheet>
-                         {balance_sheet}
-                         </BalanceSheet>
-                         <IncomeStatements> 
-                         {income_statement}
-                         </IncomeStatements>
-                     </promptInputs>
-                     <exampleOutput>
-                         <sentimentTextOutput> 
-                         Here's a breakdown of the analysis:
-
-                         **Balance Sheet Analysis**
-
-                         * Treasury shares number: No change, as NaN values are present.
-                         * Ordinary shares number: Stable, with no significant changes.
-                         * Net debt: Increased significantly, which may be a concern.
-                         * Cash and cash equivalents: Increased significantly, indicating sufficient liquidity.
-
-                         **Income Statement Analysis**
-
-                         * Net income from continuing operation net minority interest: Increased significantly, a positive sign.
-                         * EBITDA: Consistently positive, indicating a healthy operating performance.
-                         * Interest expense: Decreasing, which is a positive trend.
-                         * Research and development expenses: Increasing, which may be a strategic investment for future growth.
-
-                         **Critical Analysis**
-
-                         * Missing values: Some incomplete financial statements, which may indicate a lack of transparency or mis-reporting of data.
-                         * Debt level: Increasing, which may be a concern for investors and creditors.
-                         * Tangible book value: No information provided, which makes it difficult to assess the company's financial health.
-                         * Cash convertibility: Sufficient liquidity, as indicated by the increased cash and cash equivalents.
-
-                         **Sentiment Analysis**
-
-                         * Board members: 3 (neutral), as they may be concerned about the increasing debt level but optimistic about the company's growth prospects.
-                         * Shareholders: 3 (neutral), as they may be pleased with the increasing net income but concerned about the debt level and missing values.
-                         * Short sellers: 2 (somewhat negative), as they may be skeptical about the company's ability to sustain its growth and concerned about the increasing debt level.
-
-                         **Overall Sentiment Score**
-
-                         * 2.67 (somewhat positive), as the company's financial performance is generally positive, but concerns about debt level and missing values exist.
-                         </sentimentTextOutput> 
-                         <JsonOutputFormat> 
-                         {{
-                          "balance_sheet_analysis": {{
-                            "treasury_shares_number": "increased significantly",
-                            "ordinary_shares_number": "increasing",
-                            "net_debt": "increased significantly",
-                            "cash_and_cash_equivalents": "increased significantly"
-                          }},
-                          "income_statement_analysis": {{
-                            "net_income_from_continuing_operation_net_minority_interest": "significant losses",
-                            "ebitda": "consistently negative",
-                            "interest_expense": "increasing",
-                            "research_and_development_expenses": "increasing"
-                          }},
-                          "critical_analysis": {{
-                            "missing_values": "incomplete financial statements",
-                            "debt_level": "increasing",
-                            "ebitda": "negative",
-                            "net_income": "significant losses"
-                          }},
-                          "sentiment_analysis": {{
-                            "board_members": 2,
-                            "shareholders": 2,
-                            "short_sellers": 4
-                          }},
-                          "overall_sentiment_score": 2.33
-                         }}  
-                         </JsonOutputFormat> 
-                     </exampleOutput>
-                     '''
-                }
-            ],
+            messages=messages,
             model="llama3-70b-8192",
         )
 
