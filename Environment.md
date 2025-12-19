@@ -10,6 +10,10 @@
 
 # TA-Lib
 
+Financial Technical Analysis Library
+
+**Github**: https://github.com/TA-Lib/ta-lib
+
 ## [TA-Lib Installation](https://mrjbq7.github.io/ta-lib)
 
 ** It turns out that Pandas TA already include the TA-Lib functions. **
@@ -31,7 +35,7 @@ make
 # Install the library
 sudo make install
 # Create symbolic links so that ta-lib can be found by the pip installer
-cd /usr/share/lib
+cd /usr/lib
 sudo ln -s libta_lib.a libta-lib.a
 sudo ln -s libta_lib.la libta-lib.la
 sudo ln -s libta_lib.so libta-lib.so

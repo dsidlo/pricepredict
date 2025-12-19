@@ -7,6 +7,11 @@ and train an LSTM model to predict the price of a stock.
 See tests for examples of how to use this class.
 
 """
+
+# CRITICAL: Import needs to come before debugger's imports for chrome impersonation to work correctly.
+import sys
+import yfinance as yf
+import yfinance_cache as yfc
 import datetime
 import time
 import matplotlib.pyplot as plt
@@ -16,10 +21,7 @@ import os
 import pandas as pd
 import pandas_ta as ta
 import re
-import sys
 import tensorflow as tf
-import yfinance as yf
-import yfinance_cache as yfc
 import logging
 import statsmodels.api as sm
 import json
@@ -345,6 +347,10 @@ class PricePredict():
         self.cache_update_count = 0  # The cache update count
         self.spread_analysis = {}  # Spread analysis against other tickers
         self.logger = None  # The mylogger for this object
+        self.ml_failure = False
+        self.ml_failure_msg = ""
+        self.fetch_failure = False
+        self.fetch_failure_msg = ""
 
         # Create a mylogger for this object.
         if logger is None:
@@ -451,7 +457,7 @@ class PricePredict():
             try:
                 # period='5d' can fail for some tickers such as SRCL
                 try:
-                    ticker_data = xyf.Ticker(chk_ticker).info
+                    ticker_data = xyf.Ticker(chk_ticker, session=None).info
                 except Exception as e:
                     if 'json' in str(e):
                         self.logger.warn(f"Warn: 1 - Ticker().info JSON processing for Ticker [{chk_ticker}].")
@@ -472,7 +478,7 @@ class PricePredict():
                     self.logger.error(f"Error: Ticker [{chk_ticker}] - ticker_data has no data. Seems to be Invalid.")
                     raise RuntimeError(f"Error: Ticker [{chk_ticker}] - ticker_data has no data. Seems to be Invalid.")
 
-                ticker_ = xyf.Ticker(chk_ticker).history(period='1mo', interval='1d')
+                ticker_ = xyf.Ticker(chk_ticker, session=None).history(period='1mo', interval='1d')
                 if ticker_ is None or len(ticker_) == 0:
                     self.logger.error(f"Error: Ticker [{chk_ticker}] - ticker_ has no data. Seems to be Invalid.")
                     raise RuntimeError(f"Error: Ticker [{chk_ticker}] - ticker_ has no data. Seems to be Invalid.")
@@ -553,9 +559,15 @@ class PricePredict():
         """
 
         xyf = self.yf
+        sleep_n = self.yf_sleep
 
         if ticker is None:
             ticker = self.ticker
+
+        if ticker is None:
+            self.fetch_failure = True
+            self.fetch_failure_msg = "self.ticker is None"
+            raise ValueError(f"self.ticker is None. Won't fetch data.")
 
         # Check if ticker begins with '^'
         if ticker[0] == '^' and self.yf_cached:
@@ -606,6 +618,8 @@ class PricePredict():
                     self.orig_data = self.cached_data.loc[date_start:date_end]
                     self.date_data = pd.Series(self.orig_data.index)
                     self.cache_fetch_count += 1
+                    self.fetch_failure = False
+                    self.fetch_failure_msg = ""
                     return self.orig_data, self.orig_data.shape[1]
                 elif self.period == self.PeriodWeekly:
                     # Return Weekly Data from the cache.
@@ -627,6 +641,8 @@ class PricePredict():
                     self.date_end = date_end
                     self.orig_data = wkly_data
                     self.cache_fetch_count += 1
+                    self.fetch_failure = False
+                    self.fetch_failure_msg = ""
                     return wkly_data, wkly_data.shape[1]
 
         # ------ Fetch the data from Yahoo Finance ------
@@ -641,9 +657,10 @@ class PricePredict():
         while True:
             try:
                 if self.period in [PricePredict.PeriodWeekly, PricePredict.PeriodDaily]:
-                    net_data = xyf.download(tickers=[f_ticker], start=date_start, end=date_end)
+                    net_data = xyf.download(tickers=[f_ticker], start=date_start, end=date_end, auto_adjust=True, session=None)
                 else:
-                    net_data = xyf.download(tickers=f_ticker, start=date_start, end=date_end, interval=self.period)
+                    net_data = xyf.download(tickers=f_ticker, start=date_start, end=date_end, interval=self.period,
+                                            auto_adjust=True, session=None)
                 break
             except Exception as e:
                 if 'Expecting value' in str(e):
@@ -662,7 +679,10 @@ class PricePredict():
                     break
 
         if len(net_data) == 0:
-            self.logger.error(f"Error: No data for {ticker} from {date_start} to {date_end}")
+            err_msg = f"Error: No data for {ticker} from {date_start} to {date_end}"
+            self.logger.error(err_msg)
+            self.fetch_failure = True
+            self.fetch_failure_msg = err_msg
             return None, None
 
         # if 'Date' in data.index.names:
@@ -810,6 +830,8 @@ class PricePredict():
         self.orig_data = interpolated_data
         self.cached_data = interpolated_data
         self.date_data = pd.Series(interpolated_data.index)
+        self.fetch_failure = False
+        self.fetch_failure_msg = ""
 
         return interpolated_data, interpolated_data.shape[1]
 
@@ -1068,8 +1090,13 @@ class PricePredict():
             raise ValueError(f"Error: Model path var is empty [{model_path}].")
         model = keras.models.load_model(model_path)
         if model is None:
-            self.logger.error("Error: Could not load model.")
-            raise ValueError("Error: Could not load model.")
+            err_msg = f"Error: Could not train the model [{self.ticker}:{self.period}]."
+            self.ml_failure = True
+            self.ml_failure_msg = err_msg
+            self.logger.error(err_msg)
+            raise ValueError("err_msg")
+        self.ml_failure = False
+        self.ml_failure_msg = ""
         self.logger.debug(f"Model Loaded: {model_path}")
 
         if '_' + self.PeriodWeekly + '_' in model_path.lower():
@@ -1359,8 +1386,11 @@ class PricePredict():
             # Train a new model using the cached training data.
             model, y_pred, mse = self.train_model(self.X, self.y)
             if model is None:
-                self.logger.error("Error: Could not train the model.")
-                raise ValueError("Error: Could not train the model.")
+                err_msg = f"Error: Could not train the model [{self.ticker}:{self.period}]."
+                self.ml_failure = True
+                self.ml_failure_msg = err_msg
+                self.logger.error(err_msg)
+                raise ValueError(err_msg)
             else:
                 # Save the model
                 self.model = model
@@ -1368,6 +1398,8 @@ class PricePredict():
                 self.save_model(ticker=self.ticker,
                                 date_start=self.dateStart_train,
                                 date_end=self.dateEnd_train)
+                self.ml_failure = False
+                self.ml_failure_msg = ""
 
         # At this point, we have loaded a model.
         self.cached_predict_report(no_report=no_report, save_plot=save_plot, show_plot=show_plot)
@@ -1472,7 +1504,7 @@ class PricePredict():
 
     def fetch_opt_hyperparameters(self, ticker, hparams_file=None):
         """
-        Fetch the training parameters for the given ticker from the ./gui_data/ticker_bopts.json file.
+        Fetch the training parameters for the given ticker from the ~ticker_bopts.json file.
         :param ticker:
         :return:
         """
@@ -1486,9 +1518,9 @@ class PricePredict():
                     hparams_file = hf
                     break
         else:
-            if os.path.exists(hparams_file):
-                self.logger.error(f"Error: File [{hparams_file}] does not exist.")
-                raise ValueError(f"Error: File [{hparams_file}] does not exist.")
+            if os.path.exists(hparams_file) is False:
+                with open(hparams_file, 'w') as f:
+                    f.write('')
 
         with open(hparams_file, 'r') as f:
             for line in f:
@@ -1680,7 +1712,7 @@ class PricePredict():
             fy_test = np.array(pd.DataFrame(y_test).replace({np.nan: 0}))
             mse = mean_squared_error(fy_test, fy_pred)
             if self.verbose:
-                self.logger.info(f"Mean Squared Error: {mse}")
+                self.logger.info(f"Mean Squared Error (mse): {mse}")
 
             # Restore the scale of the prediction
             # - Save the rescaled prediction to this object (self.pred_xxx)
@@ -2451,21 +2483,29 @@ class PricePredict():
             else:
                 plt_ohlcv = self.orig_data.iloc[:, [0, 1, 2, 3, 4, 5]].copy()
 
+        if str(type(plt_ohlcv.index[0])) == "<class 'numpy.int64'>":
+            # Convert the index to a datetime index...
+            plt_ohlcv.index = pd.to_datetime(plt_ohlcv.index)
+
         ohlcv = plt_ohlcv.copy()
         if 'index' in ohlcv.columns:
             ohlcv.drop(columns='index', inplace=True)
             plt_ohlcv.drop(columns='index', inplace=True)
-        ohlcv.reset_index()
+        ohlcv = ohlcv.reset_index()
 
         ticker = self.ticker
 
         if 'Date' not in ohlcv.columns and 'Date' == ohlcv.index.name:
-            # df_plt_test_usd = pd.concat([df_plt_test_usd, ohlcv.set_axis(df_plt_test_usd.index)], axis=1)
-            # df_plt_test_usd = pd.concat([df_plt_test_usd, ohlcv[-len(df_plt_test_usd):]], axis=1)
-            df_plt_test_usd = ohlcv
-            df_plt_test_usd.reset_index(inplace=True)
-        else:
-            df_plt_test_usd = ohlcv.copy()
+            # Drop the date column from the ohlcv data...
+            ohlcv.drop(columns='Date', inplace=True)
+
+        df_plt_test_usd = pd.concat([df_plt_test_usd, ohlcv[-len(df_plt_test_usd):]], axis=1)
+
+        # Debug: Check for NaN in Volume column...
+        if 'Volume' in df_plt_test_usd.columns:
+            if df_plt_test_usd['Volume'].isnull().values.any():
+                self.logger.error("Error: NaN values found in the Volume column.")
+                raise ValueError("Error: NaN values found in the Volume column.")
 
         # Append a row do df_plt_test_usd for the prediction period
         # where open, high, low, and close are all equal to the last close price.
@@ -2476,7 +2516,14 @@ class PricePredict():
                 last_date = df_plt_test_usd.index[-1]
             else:
                 if 'Date' not in df_plt_test_usd.columns:
-                    raise ValueError("Error: 'Date' column is missing from the data in 'df_plt_test_usd'.")
+                    if len(self.date_data) != 0:
+                        # Add The self.date_data as the 'Date' column to df_plt_test_usd...
+                        df_dates = pd.DataFrame(self.date_data.iloc[-len(df_plt_test_usd):], columns=['Date'])
+                        df_plt_test_usd.reset_index(drop=True, inplace=True)
+                        df_plt_test_usd = pd.concat([df_dates, df_plt_test_usd], axis=1)
+                    else:
+                        self.logger.error("Error: 'Date' column is missing from the data in 'df_plt_test_usd'.")
+                        raise ValueError("Error: 'Date' column is missing from the data in 'df_plt_test_usd'.")
                 else:
                     last_date = df_plt_test_usd['Date'].iloc[-1]
             next_date = pd.to_datetime(last_date) + self.next_pd_DateOffset()
@@ -2487,26 +2534,47 @@ class PricePredict():
             last_close = df_plt_test_usd['Adj Close'].iloc[-1]
             last_adj_close = df_plt_test_usd['Adj Close'].iloc[-1]
             if 'Date' not in df_plt_test_usd.columns:
-                df_dates = self.date_data.iloc[-len(df_plt_test_usd):]
-                df_plt_test_usd.reset_index(drop=True, inplace=True)
+                df_dates = self.date_data.iloc[-len(df_plt_test_usd):].copy()
                 # Force the first column of df_dates to be 'Date'...
                 df_dates = pd.DataFrame(df_dates, columns=['Date'])
+                df_dates.reset_index(drop=True, inplace=True)
+                df_plt_test_usd.reset_index(drop=True, inplace=True)
                 df_plt_test_usd = pd.concat([df_dates, df_plt_test_usd], axis=1)
+
+            # Add an additional row for the prediction...
             last_date = df_plt_test_usd['Date'].iloc[-1]
             next_date = pd.to_datetime(last_date) + self.next_pd_DateOffset()
             new_row = {"Date": next_date,
                        "Open": last_close, "High": last_close, "Low": last_close,
                        "Adj Close": last_adj_close, "Volume": 0}
 
+        # Debug: Check for NaN in Volume column...
+        if 'Volume' in df_plt_test_usd.columns:
+            if df_plt_test_usd['Volume'].isnull().values.any():
+                self.logger.error("Error: NaN values found in the Volume column.")
+                raise ValueError("Error: NaN values found in the Volume column.")
+
         # Set the new row to the next day's date...
         new_row = pd.DataFrame(new_row, index=[next_date])
         # Append a place holder day for the prediction...
         df_plt_test_usd = pd.concat([df_plt_test_usd, new_row], axis=0)
 
+        # Determin the type of the Volume column...
+        if 'Volume' in df_plt_test_usd.columns:
+            if str(df_plt_test_usd['Volume'].dtype) == 'float64':
+                # Convert the Volume column to an integer...
+                df_plt_test_usd['Volume'] = df_plt_test_usd['Volume'].astype(int)
+
         # If 'Close' is not in the columns, rename 'Adj Close' to 'Close'...
         if 'Close' not in df_plt_test_usd.columns:
             # Rename 'Adj Close' to 'Close' for the plot...
             df_plt_test_usd.rename(columns={'Adj Close': 'Close'}, inplace=True)
+
+        # Check if index Date column is 'NaT' (Not a Time)...
+        if str(type(df_plt_test_usd.index[0])) == "<class 'pandas._libs.tslibs.timestamps.Timestamp'>":
+            err_msg = "Error: The index of df_plt_test_usd is not a datetime index."
+            self.logger.error(err_msg)
+            raise ValueError(err_msg)
 
         title = (f'Ticker: {ticker} -- Period[ {self.period}] -- {self.dateStart_pred} to {last_date}\n'
                  f'Predictions High: {self.adj_pred_high[-1].round(2)}  Close: {self.adj_pred_close[-1].round(2)}  Low: {self.adj_pred_low[-1].round(2)}')
@@ -2556,7 +2624,8 @@ class PricePredict():
                     fig, ax = mpf.plot(df_plt_test_usd[-min_len:], **kwargs,
                                        style='binance', addplot=preds, returnfig=True)
             except Exception as e:
-                self.logger.error(f"Error: Could not plot chart. {e}")
+                self.logger.error(f"Error: Could not plot chart. Ticker [{self.ticker}]"
+                                  + f" Period[{self.period}]\n{e}")
 
         return file_path, fig
 
@@ -3602,7 +3671,7 @@ class PricePredict():
         messages[0]['content'] = re.sub(r'\s+', ' ', messages[0]['content']).strip()
         chat_completion = client.chat.completions.create(
             messages=messages,
-            model="llama3-70b-8192",
+            model="llama-3.3-70b-versatile",
         )
 
         try:

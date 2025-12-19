@@ -36,6 +36,15 @@ To use this class effectively, it is ideal to use a computer with an GPU that is
 
 ## Current state...
 
+### Installation and modules issues
+
+As required python modules, APIs (Yahoo, Torch, Nvidia Cuda, the OS) change over time it is possible for the code to break requiring updates to code. 
+
+- Target OS: Ubuntu 22.04
+- Nvidia Driver: 12.8
+
+- Need to work on 
+
 ### Main UI:
 
 ![The Main UI](docs/images/ui-001-main.png)

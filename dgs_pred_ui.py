@@ -18,8 +18,9 @@ Note: All local variable are initialized in on .reset('app') method.
       Keep all required variables in the session_state object.
 """
 
-import os
 import sys
+import yfinance as yf
+import os
 import json
 import time
 import streamlit as st
@@ -27,7 +28,6 @@ import pandas as pd
 import logging
 import dill
 import shutil
-import yfinance as yf
 import futureproof as fp
 import hashlib
 import re
@@ -105,8 +105,6 @@ dill_sym_dpps_d = f'{gui_data}sym_dpps.dil'
 dill_sym_dpps_w = f'{gui_data}sym_dpps_w.dil'
 dillbk_sym_dpps_d = f'{gui_data}sym_dpps.dil.bk'
 dillbk_sym_dpps_w = f'{gui_data}sym_dpps_w.dil.bk'
-# JSON file for the optimized hyperparameters
-opt_hyperparams = f'{gui_data}ticker_bopts.json'
 
 # Direcoty paths...
 model_dir = './models/'
@@ -114,6 +112,8 @@ chart_dir = './charts/'
 preds_dir = './predictions/'
 ppo_dir = './ppo/'
 ppo_save_dir = './ppo_save/'
+# JSON file for the optimized hyperparameters
+opt_hyperparams = f'{model_dir}~ticker_bopts.json'
 
 import_cols_simple = 2
 import_cols_full = 12
@@ -562,8 +562,8 @@ def st_dataframe_widget(exp_sym, ss_DfSym, df_sel_mode, sym_col):
                           column_config={"Symbol": {"max_width": 5},
                                          "Groups": {"max_width": 4},
                                          "Trend": {"max_width": 5},
-                                         "WklyPrdStg": {"max_width": 5},
-                                         "DlyPrdStg": {"max_width": 5}},
+                                         "WklyPrdStg": st.column_config.NumberColumn(format="%.4f"),
+                                         "DlyPrdStg": st.column_config.NumberColumn(format="%.4f")},
                           selection_mode=df_sel_mode, on_select=on_select, hide_index=True)
     sym_col.append(df_sym.selection)
     st.session_state['st_dataframe.df_sym'] = df_sym
@@ -688,6 +688,7 @@ def import_symbols(st, exp_sym):
         df_imported_syms['WklyPrdStg'] = 0.0
         df_imported_syms['DlyPrdStg'] = 0.0
         df_imported_syms['wTop10Coint'] = ''
+        df_imported_syms['dTop10Coint'] = ''
         df_imported_syms['wTop10Corr'] = ''
         df_imported_syms['wTop10xCorr'] = ''
         df_imported_syms['dTop10Corr'] = ''
@@ -744,11 +745,11 @@ def add_new_symbols(st, exp_sym, syms):
             # Verify with yahoo finance that the symbol is valid, and get the long name
             new_ticker, long_name = getTickerLongName(sym)
             if long_name != '':
-                new_row = pd.DataFrame({'Symbol': sym,
-                                        'LongName': long_name,
-                                        'Groups': 'Added', 'Trend': '',
+                new_row = pd.DataFrame({'Symbol': [sym],
+                                        'LongName': [long_name],
+                                        'Groups': ['Added'], 'Trend': [''],
                                         'DlyPrdStg': [0.0], 'WklyPrdStg': [0.0],
-                                        'wTop10Coint': [''], 'wTop10xCoint': [''],
+                                        'wTop10Coint': [''], 'dTop10Coint': [''],
                                         'wTop10Corr': [''], 'wTop10xCorr': [''],
                                         'dTop10Corr': [''], 'dTop10xCorr': ['']})
                 # Add the symbol to the display DataFrame
@@ -827,6 +828,7 @@ def display_symbol_charts(interactive_charts=True):
             or (len(st.session_state.dfSymbols.selection.rows) == 0)))):
         return
 
+    st.set_page_config(layout="wide")
     df_symbols = st.session_state[ss_DfSym]
     if hasattr(st.session_state[ss_DfSym], 'Symbol'):
         if hasattr(st.session_state, 'dfSymbols'):
@@ -1544,8 +1546,12 @@ def task_train_predict_report(symbol_, dpp, added_syms=None,
     if force_training or dpp.last_analysis is None or dpp.model is None:
         mylogger.info(f"Training and predicting for {symbol_}...")
         dd = dpp.cached_train_data.dates_data
-        dpp.cached_train_predict_report(force_training=True)
-        mylogger.info(f"Completed training and predicting for {symbol_}...")
+        try:
+            dpp.cached_train_predict_report(force_training=True)
+        except Exception as ex:
+            mylogger.warn(f"Warn: {ex} {symbol_}...")
+        finally:
+            mylogger.info(f"Completed training and predicting for {symbol_}...")
     else:
         mylogger.info(f"Predicting for {symbol_}...")
         dpp.cached_predict_report()
@@ -1636,11 +1642,11 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
             all_df_symbols.loc[indx, 'Trend'] = d_trend
             prd_strg = pp.pred_strength
             if prd_strg is None:
-                prd_strg = 0
-            all_df_symbols.loc[indx, 'DlyPrdStg'] = f'{prd_strg:>,.4f}'
-            all_df_symbols.loc[indx, 'dTop10Coint'] = json.dumps(pp.top10coint)
-            all_df_symbols.loc[indx, 'dTop10Corr'] = json.dumps(pp.top10corr)
-            all_df_symbols.loc[indx, 'dTop10xCorr'] = json.dumps(pp.top10xcorr)
+                prd_strg = 0.0
+            all_df_symbols.loc[indx, 'DlyPrdStg'] = float(prd_strg)
+            all_df_symbols.loc[indx, 'dTop10Coint'] = json.dumps(pp.top10coint or [])
+            all_df_symbols.loc[indx, 'dTop10Corr'] = json.dumps(pp.top10corr or [])
+            all_df_symbols.loc[indx, 'dTop10xCorr'] = json.dumps(pp.top10xcorr or [])
 
     if ss_SymDpps_w in st.session_state.keys():
         sym_dpps_w = st.session_state[ss_SymDpps_w]
@@ -1687,11 +1693,11 @@ def update_viz_data(st, all_df_symbols) -> pd.DataFrame:
             all_df_symbols.loc[indx, 'Trend'] = w_trend + ' - ' + all_df_symbols.loc[indx, 'Trend'].values[0]
             prd_strg = pp.pred_strength
             if prd_strg is None:
-                prd_strg = 0
-            all_df_symbols.loc[indx, 'WklyPrdStg'] = f'{prd_strg:>,.4f}'
-            all_df_symbols.loc[indx, 'wTop10Coint'] = json.dumps(pp.top10coint)
-            all_df_symbols.loc[indx, 'wTop10Corr'] = json.dumps(pp.top10corr)
-            all_df_symbols.loc[indx, 'wTop10xCorr'] = json.dumps(pp.top10xcorr)
+                prd_strg = 0.0
+            all_df_symbols.loc[indx, 'WklyPrdStg'] = float(prd_strg)
+            all_df_symbols.loc[indx, 'wTop10Coint'] = float(json.dumps(0.0 if pp.top10coint is None else pp.top10coint))
+            all_df_symbols.loc[indx, 'wTop10Corr'] = float(json.dumps(0.0 if pp.top10corr is None else pp.top10corr))
+            all_df_symbols.loc[indx, 'wTop10xCorr'] = float(json.dumps(0.0 if pp.top10xcorr is None else pp.top10xcorr))
 
     st.session_state[ss_AllDfSym] = all_df_symbols
     df_symbols = st.session_state[ss_DfSym]
@@ -1783,7 +1789,11 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
                     # Load up the data for the target symbol if it does not have enough data points
                     end_date = datetime.now().strftime("%Y-%m-%d")
                     start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
-                    source_sym.fetch_data_yahoo(ticker=source_sym.ticker, date_start=start_date, date_end=end_date, period=source_sym.period)
+                    try:
+                        source_sym.fetch_data_yahoo(ticker=source_sym.ticker, date_start=start_date, date_end=end_date, period=source_sym.period)
+                    except Exception as ex:
+                        mylogger.warn(f"Warn: {ex}")
+                        continue
 
                 if source_sym.orig_data is None or len(source_sym.orig_data) < min_data_points:
                     len_ = None
@@ -1809,7 +1819,8 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
         if sym_corr[ts] is None:
             mylogger.debug(f"Symbol Correlation (sym_corr) for [{ts}] is None")
             continue
-
+        # 0-T : True - Both  Cointegrated and Stationary
+        # 1-F : False - Not Both Cointegrated and Stationary
         corrs.append((ts, (round(sym_corr[ts]['avg_corr'], 5),
                            round(sym_corr[ts]['pct_uncorr'], 5),
                            ('0-T  | ' if sym_corr[ts]['coint_stationary'] else '1-F | '
@@ -2056,7 +2067,6 @@ def do_bayes_opt(in_ticker, pp_obj=None, opt_csv=None,
     if train_and_predict:
         # Training, will load last saved model which is the optimized model.
         pp.cached_train_predict_report(force_training=False, save_plot=False, show_plot=True)
-
     return pp
 
 
@@ -2120,7 +2130,7 @@ def optimize_hparams(st, prog_bar):
                 else:
                     # Write out the optimized hyperparameters to a JSON file
                     opt_hypers_s = json.dumps(pp.bayes_opt_hypers)
-                    f.write(f'{{ "symbol": "{pp.ticker}", "hparams": {opt_hypers_s} }}\n')
+                    f.write(f'{ "symbol": "{pp.ticker}", "hparams": {opt_hypers_s} }\n')
                     print(f'Completed Hyperparameters Optimization: {pp.ticker}')
                 opt_cnt += 1
                 # Update the progress bar
