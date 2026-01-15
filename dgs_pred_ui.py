@@ -35,7 +35,6 @@ import io
 import concurrent.futures as cf
 import objgraph
 import numpy as np
-
 import line_profiler
 from line_profiler import profile, LineProfiler
 
@@ -377,8 +376,8 @@ def  main(message):
         elif hasattr(df_sym.selection, 'rows') and len(df_sym.selection.rows) > 0:
             # We have a selected symbol so display the symbol's chart
             df_symbols = st.session_state[ss_DfSym]
-            mylogger.info(df_sym.selection.rows[0])
-            mylogger.info(df_symbols.Symbol[df_sym.selection.rows[0]])
+            # mylogger.info(df_sym.selection.rows[0])
+            # mylogger.info(df_symbols.Symbol[df_sym.selection.rows[0]])
             img_sym = df_symbols.Symbol[df_sym.selection.rows[0]]
         # =============================================================
 
@@ -534,12 +533,12 @@ def st_dataframe_widget(exp_sym, ss_DfSym, df_sel_mode, sym_col):
         # This is used when removing symbols and marking/clearing favorites
         on_select = 'rerun'
         df_sel_mode = 'multi-row'
-        mylogger.info("1>>> Multi-Row on")
+        # mylogger.info("1>>> Multi-Row on")
     else:
         # on_select = display_symbol_charts
         on_select = 'rerun'
         df_sel_mode = 'single-row'
-        mylogger.info("1>>> Multi-Row off")
+        # mylogger.info("1>>> Multi-Row off")
 
     print(f' *** df_sel_mode: {df_sel_mode}, on_select: {on_select}')
     print(f' *** ss_fRmChosenSyms [{hasattr(st.session_state, ss_fRmChosenSyms)}]')
@@ -792,14 +791,16 @@ def add_new_symbols(st, exp_sym, syms):
         pp_d = PricePredict(ticker=sym, period=PricePredict.PeriodDaily,
                             model_dir=model_dir,
                             chart_dir=chart_dir,
-                            preds_dir=preds_dir)
+                            preds_dir=preds_dir,
+                            logger=mylogger)
         st.session_state[ss_SymDpps_d][sym] = pp_d
         # Create a Weekly PricePredict object for the symbol
         pp_w = PricePredict(ticker=sym,
                             period=PricePredict.PeriodWeekly,
                             model_dir=model_dir,
                             chart_dir=chart_dir,
-                            preds_dir=preds_dir)
+                            preds_dir=preds_dir,
+                            logger=mylogger)
         st.session_state[ss_SymDpps_w][sym] = pp_w
 
     txt = f"New Symbols Added: {added_symbols}"
@@ -1130,7 +1131,8 @@ def analyze_symbols(st, prog_bar, df_symbols,
                 ppw = PricePredict(ticker=row.Symbol, period=PricePredict.PeriodWeekly,
                                    model_dir=model_dir,
                                    chart_dir=chart_dir,
-                                   preds_dir=preds_dir)
+                                   preds_dir=preds_dir,
+                                   logger=mylogger)
                 st.session_state[ss_SymDpps_w][row.Symbol] = ppw
                 st.session_state[ss_SymDpps_w][row.Groups] = 'Added'
             else:
@@ -1166,8 +1168,10 @@ def analyze_symbols(st, prog_bar, df_symbols,
                 ppd = PricePredict(ticker=row.Symbol, period=PricePredict.PeriodDaily,
                                    model_dir=model_dir,
                                    chart_dir=chart_dir,
-                                   preds_dir=preds_dir)
+                                   preds_dir=preds_dir,
+                                   logger=mylogger)
                 st.session_state[ss_SymDpps_d][row.Symbol] = ppd
+                st.session_state[ss_SymDpps_w][row.Groups] = 'Added'
             else:
                 ppd = st.session_state[ss_SymDpps_d][row.Symbol]
 
@@ -1182,7 +1186,7 @@ def analyze_symbols(st, prog_bar, df_symbols,
 
             mylogger.info(f"Daily - Pull data for model: {row.Symbol}")
             twenty4_hours_ago = datetime.now() - timedelta(hours=24)
-            if ppd.last_analysis < twenty4_hours_ago:
+            if ppd.last_analysis < twenty4_hours_ago or force_training or force_analysis:
                 try:
                     task_pull_data(row.Symbol, ppd)
                     mylogger.info(f"Daily - Train and Predict: {row.Symbol}")
@@ -1209,8 +1213,6 @@ def analyze_symbols(st, prog_bar, df_symbols,
             mylogger.debug(f"=== Checking futures ...")
 
             i += 1
-            # Update the progress bar
-            prog_bar.progress(int(i / total_syms * 100), f"Analysis Completed: {sym_} ({i}/{total_syms})")
 
             if isinstance(future, Exception):
                 mylogger.error(f"Error processing symbol: {future.args[0], future.args[1]} {future.result}")
@@ -1224,6 +1226,9 @@ def analyze_symbols(st, prog_bar, df_symbols,
                     st.session_state[ss_SymDpps_d][sym_] = pp_
                 else:
                     mylogger.error(f"Error PricePredict Object has invalid period value: {pp_.period}")
+
+            # Update the progress bar
+            prog_bar.progress(int(i / total_syms * 100), f"Analysis Completed: {sym_}:{pp_.period} ({i}/{total_syms})")
 
     if len(syms_analyzed) > 0:
         # Save out the updated DataFrames and PricePredict objects
@@ -1285,6 +1290,8 @@ def analyze_symbols(st, prog_bar, df_symbols,
         print(f"Deleted {del_5min_charts} 5Min Chart images")
         print(f"Deleted {del_1min_charts} 1Min Chart images")
 
+    prog_bar.progress(100, f"*** Analysis Completed ***")
+
 
 def load_pp_objects(st):
 
@@ -1306,6 +1313,9 @@ def load_pp_objects(st):
             if entry.is_file() and entry.name.endswith('.dilz'):
                 sym, period = entry.name.split('_')[:2]
                 sym_period = sym + '_' + period
+                # Only load PPO if its symbol is in the st.session_state[ss_AllDfSym] array.
+                if sym not in st.session_state[ss_AllDfSym].Symbol.values:
+                    continue
                 # Find a key in dill_files that starts with sym and place the entry
                 # the variable curr_entry.
                 curr_entry = next((v for k, v in dill_files.items() if k.startswith(sym_period)), None)
@@ -1330,14 +1340,14 @@ def load_pp_objects(st):
                 try:
                     with open(entry, "rb") as f:
                         cobj = f.read()
-                        sym_dpps_w_[sym] = PricePredict.unserialize(cobj)
+                        sym_dpps_w_[sym] = PricePredict.unserialize(cobj, logger=mylogger)
                 except Exception as e:
                     mylogger.warning(f"Error loading PricePredict object [{sym}]: {e}")
             elif period == 'D':
                 try:
                     with open(entry, "rb") as f:
                         cobj = f.read()
-                        sym_dpps_d_[sym] = PricePredict.unserialize(cobj)
+                        sym_dpps_d_[sym] = PricePredict.unserialize(cobj, logger=mylogger)
                 except Exception as e:
                     mylogger.warning(f"Error loading PricePredict object [{sym}]: {e}")
             i += 1
@@ -1508,7 +1518,7 @@ def task_pull_data(symbol_, dpp):
     # Pull the data and cache it...
     dpp.cache_training_data(symbol_, start_date, end_date, dpp.period)
     if len(dpp.orig_data) < 150:
-        mylogger.error(f"Error: Not enough data for [{symbol_}] [{len(dpp.orig_data) }], for training. So, won't train or predict.")
+        mylogger.error(f"Error: Not enough data for [{symbol_}:{dpp.period}] [{len(dpp.orig_data) }], for training. So, won't train or predict.")
         # TODO: Add a problem property to the PricePredict object that can be displayed for
         #       objects that have issues.
         return symbol_, dpp
@@ -1549,7 +1559,7 @@ def task_train_predict_report(symbol_, dpp, added_syms=None,
         try:
             dpp.cached_train_predict_report(force_training=True)
         except Exception as ex:
-            mylogger.warn(f"Warn: {ex} {symbol_}...")
+            mylogger.warning(f"Warn: {ex} {symbol_}...")
         finally:
             mylogger.info(f"Completed training and predicting for {symbol_}...")
     else:
@@ -1728,6 +1738,24 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
     This procedure performs corr analysis for each PricePredict object
     against all other PricePredict objects amd update the PricePredict object's
     top10corr, top10xcorr, and top10coint properties.
+    1. The first loop iterates over each symbol in sym_dpps, checking if it exists in the all_df_symbols DataFrame.
+        a. If the symbol is not found, it is skipped and the loop continues to the next symbol.
+        b. The loop counter i is incremented for each processed symbol.
+        c. Then it checks if the symbol has enough any data points for correlation calculations.
+        d. If no data points, attempts pulling data from the data source.
+        e. If data is successfully pulled, updates the symbol's data in all_df_symbols.
+        f. If data is still not available, skips the symbol and continues to the next one.
+        g. The internal loop iterates over each other symbol in sym_dpps to calculate correlations.
+            A. Here to also check if we have data, if not, attempts pulling data from the data source.
+            B. If data is successfully pulled, updates the symbol's data in all_df_symbols.
+            C. If data is still not available, skips the symbol and continues to the next one.
+            D. Finally, we calculate the Periodic Correlations between the two symbols.
+    2. The second loop iterates over each other symbol in sym_dpps to calculate correlations.
+        A. For each symbol, we find the top...
+           a. Cointegrated symbols associated to a given symbol.
+           b. We also calculate correlated and cross-correlated associated symbols based on the Periodic Correlations.
+    3. The Third loop iterates over each symbol in sym_corr to find and prep data structures of the
+       top cointegrated, correlated, and cross-correlated associated symbols for UI display.
     """
     mylogger.debug(f"Calculating Period [{prd}] Correlations...")
 
@@ -1742,6 +1770,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
     i = 0
     item_cnt = len(sym_dpps)
     pt_corr = {}
+    # Periodic Correlation & Cointegration Analysis loop...
     for tsym in sym_dpps:
         if tsym not in all_df_symbols.Symbol.values:
             # Skip symbols not in the DataFrame
@@ -1749,6 +1778,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
         i += 1
         # Update the progress bar
         prog_bar.progress(int(i / item_cnt * 100), f"{prd} Correlations (1): {tsym} ({i}/{item_cnt})")
+        mylogger.info(f"Processing correlations for {tsym} ({i}/{item_cnt})")
 
         target_sym = sym_dpps[tsym]
         target_sym.ticker = tsym  # Make sure the ticker is set correctly
@@ -1777,10 +1807,6 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
 
             if tsym != ssym:
                 source_sym = sym_dpps[ssym]
-                # Optimization (TODO):
-                # Check in pt_corr to see if we have already calculated the correlation
-                # Store the correlation in sym_corr into the pt_corr dictionary
-                # So we can use it later without recalculating it.
                 days_back = req_data_points
                 if source_sym.period == PricePredict.PeriodWeekly:
                     days_back = req_data_points * 7
@@ -1792,26 +1818,34 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
                     try:
                         source_sym.fetch_data_yahoo(ticker=source_sym.ticker, date_start=start_date, date_end=end_date, period=source_sym.period)
                     except Exception as ex:
-                        mylogger.warn(f"Warn: {ex}")
+                        mylogger.warning(f"Warn: {ex}")
                         continue
 
                 if source_sym.orig_data is None or len(source_sym.orig_data) < min_data_points:
                     len_ = None
                     if source_sym.orig_data is not None:
                         len_ = len(source_sym.orig_data)
-                    mylogger.info(f"1: Symbol source:[{ssym} {source_sym.period}] [{len_}] has less than {min_data_points}"
+                    mylogger.warning(f"1: Symbol source:[{ssym} {source_sym.period}] [{len_}] has less than {min_data_points}"
                                   + " data points. Wont calculate correlations.")
                     continue
-                try:
-                    # Perform correlation analysis for target_sym vs source_sym for the last 300 days/weeks.
-                    corr = target_sym.periodic_correlation(source_sym, period_len=300)
-                    sym_corr[(tsym, ssym)] = corr
-                except Exception as e:
-                    mylogger.error(f"Error calculating corr for [{tsym}:{ssym}] period[D]: {e}")
-                    continue
+                # try:
+                #     # Perform correlation analysis for target_sym vs source_sym for the last 300 days/weeks.
+                #     corr = target_sym.periodic_correlation(source_sym, period_len=300)
+                #     sym_corr[(tsym, ssym)] = corr
+                # except Exception as e:
+                #     mylogger.error(f"Error calculating corr for [{tsym}:{ssym}] period[D]: {e}")
+                #     continue
+
+                # Perform correlation analysis for target_sym vs source_sym for the last 300 days/weeks.
+                if type(target_sym.orig_data.index[0]) is np.int64:
+                    raise ValueError(f"sym_correlation - Ticker[{target_sym.ticker}:{target_sym.period}] has integer index, which may cause issues...")
+                corr = target_sym.periodic_correlation(source_sym, period_len=300)
+                sym_corr[(tsym, ssym)] = corr
+
     corrs = []
     i = 0
     item_cnt = len(sym_corr)
+    # Cointigrated and Periodic Correlated Symbols Analysis loop...
     for ts in sym_corr.keys():
         i += 1
         # Update the progress bar
@@ -1865,7 +1899,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
             if target_sym.orig_data is not None:
                 len_ = len(target_sym.orig_data)
             mylogger.info(
-                f"2: Symbol target:[{target_sym.ticker} {target_sym.period}] [{len_}] has less than {min_data_points} data points. Wont calculate correlations.")
+                f"2: Symbol target:[{target_sym.ticker} {target_sym.period}] has less than {min_data_points} < [{len_}] data points. Wont calculate correlations.")
             continue
 
         # Gather the top 10 cointegrated symbols for the target symbol
@@ -1913,7 +1947,7 @@ def sym_correlations(prd, st, sym_dpps, prog_bar):
 
 def model_cleanup(period, symbols):
     # Given the list of symbols, in sum_dpps_d...
-    # Get the list of models that contain _D_ in the name...
+    # Get the list of models that contain _D_ & _W_ in the name...
     del_model_cnt = 0
     for sym in symbols['Symbol']:
         sym = sym.replace("=", "~")
@@ -2018,7 +2052,8 @@ def do_bayes_opt(in_ticker, pp_obj=None, opt_csv=None,
         # Create an instance of the price prediction object
         pp = PricePredict(model_dir=model_dir,
                           chart_dir=chart_dir,
-                          preds_dir=preds_dir)
+                          preds_dir=preds_dir,
+                          logger=mylogger)
     else:
         pp = pp_obj
 

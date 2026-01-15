@@ -9,6 +9,7 @@ See tests for examples of how to use this class.
 """
 
 # CRITICAL: Import needs to come before debugger's imports for chrome impersonation to work correctly.
+import logging
 import sys
 import yfinance as yf
 import yfinance_cache as yfc
@@ -22,7 +23,6 @@ import pandas as pd
 import pandas_ta as ta
 import re
 import tensorflow as tf
-import logging
 import statsmodels.api as sm
 import json
 import lzma
@@ -34,6 +34,8 @@ import tf_keras as keras
 from typing import Callable
 from decimal import Decimal
 from io import StringIO
+
+from numba.np.arrayobj import ol_compatible_view
 from tf_keras.layers import Dense, LSTM, Input, Activation
 from tf_keras.models import Model
 from tf_keras.optimizers import Adam
@@ -177,6 +179,8 @@ class PricePredict():
       and prediction, charting and reporting on their respective cached data.
     """
 
+    PPO_VERSION = "0.0.0.5"
+
     # Constants
     PeriodWeekly = 'W'
     PeriodDaily = 'D'
@@ -237,6 +241,7 @@ class PricePredict():
         :param verbose:
         :return PricePredict:   # An instance of the PricePredict class
         """
+        self.VERSION = PricePredict.PPO_VERSION
         self.model_dir = model_dir  # The directory where the model is saved
         self.model_path = ''  # The path to the current loaded model
         self.preds_dir = preds_dir  # The directory where the predictions are saved
@@ -368,13 +373,13 @@ class PricePredict():
         # # Set the objects logging to stdout by default for testing.
         # # The mylogger and the logging-level can be overridden by the calling program
         # # once the object is instantiated.
-        # if self.mylogger.hasHandlers():
-        #     self.mylogger.handlers.clear()
+        # if self.self.logger.hasHandlers():
+        #     self.self.logger.handlers.clear()
         # if tf.get_logger().hasHandlers():
         #     tf.get_logger().handlers.clear()
 
         # # Turn off this objects logging to stdout
-        # self.mylogger.propagate = False
+        # self.self.logger.propagate = False
         # # Turn off tensorflow logging to stdout
         # tf.get_logger().propagate = False
 
@@ -385,7 +390,7 @@ class PricePredict():
 
         # Set the logging level.
         if log_level is None:
-            self.logger.setLevel(logging.DEBUG)
+            self.logger.setLevel(logging.INFO)
         else:
             self.logger.setLevel(log_level)
 
@@ -408,6 +413,36 @@ class PricePredict():
                 self.yf = yf
 
         self.logger.debug(f"=== PricePredict: Initialized.")
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        if '_version' in state:
+            state['_version'] = self.VERSION
+        return state
+
+    def __setstate__(self, state):
+        version = state.pop('_version', "0.0.0.0")  # Old objects have no version
+
+        # Perform data structure migration based on object version.
+        # if version < 2:
+        #     # Automatically migrate: add email field
+        #     state['email'] = None
+
+        # Check is self has a VERSION attribute...
+        if hasattr(self, 'VERSION'):
+            # Object's current version
+            vers = self.VERSION
+            if vers < version:
+                logging.info(f"__setstate__ - Upgraded object version from {vers} to {version}")
+                vers = version
+        else:
+            vers = PricePredict.PPO_VERSION
+            logging.info(f"__setstate__ - Object being versioned for the first time to {vers}")
+
+        # Upgrade to current version
+        state['_version'] = vers
+
+        self.__dict__.update(state)
 
     def get_config(self):
         pass
@@ -615,7 +650,10 @@ class PricePredict():
                     # Get the data from the self.orig_data using the date range.
                     self.date_start = date_start
                     self.date_end = date_end
-                    self.orig_data = self.cached_data.loc[date_start:date_end]
+                    self.orig_data = self.cached_data.loc[date_start:date_end].copy(deep=True)
+                    if type(self.orig_data.index[0]) is np.int64:
+                        self.logger.warning(
+                            f"fetch_data_yahoo[1] - Ticker[{self.ticker}:{self.period}] has integer index, which may cause issues...")
                     self.date_data = pd.Series(self.orig_data.index)
                     self.cache_fetch_count += 1
                     self.fetch_failure = False
@@ -634,7 +672,7 @@ class PricePredict():
                     date_end_sunday = date_obj + timedelta(days=6) - timedelta(days=date_obj.weekday())
                     w_date_end= date_end_sunday.strftime('%Y-%m-%d')
 
-                    wkly_data = self.cached_data.loc[w_date_start:w_date_end]
+                    wkly_data = self.cached_data.loc[w_date_start:w_date_end].copy(deep=True)
 
                     # Set the objects date_start and date_end properties to the last fetch.
                     self.date_start = date_start
@@ -828,6 +866,8 @@ class PricePredict():
         self.date_end = date_end
         self.orig_downloaded_data = net_data
         self.orig_data = interpolated_data
+        if type(self.orig_data.index[0]) is np.int64:
+            self.logger.warning(f"fetch_data_yahoo[2] - Ticker[{self.ticker}:{self.period}] has integer index, which may cause issues...")
         self.cached_data = interpolated_data
         self.date_data = pd.Series(interpolated_data.index)
         self.fetch_failure = False
@@ -862,8 +902,8 @@ class PricePredict():
             data_date       # An array of dates (Extracted from the data)
         """
 
-        # mylogger.info("= Before Adding Indicators ========================================================")
-        # mylogger.info(data.tail(10))
+        # self.logger.info("= Before Adding Indicators ========================================================")
+        # self.logger.info(data.tail(10))
 
         # Make a copy of the data to that we don't modify orig_data
         aug_data = data.copy(deep=True)
@@ -881,8 +921,8 @@ class PricePredict():
         aug_data['DPO9'] = ta.dpo(aug_data.Close, length=9, lookahead=False, centered=False)
         feature_cnt += 1
 
-        # mylogger.info("= After Adding DPO2 ========================================================")
-        # mylogger.info(aug_data.tail(10))
+        # self.logger.info("= After Adding DPO2 ========================================================")
+        # self.logger.info(aug_data.tail(10))
         #
         # On Balance Volume
         if aug_data['Volume'].iloc[-1] > 0:
@@ -890,8 +930,8 @@ class PricePredict():
                                              fast=3, slow=6, min_lookback=3, max_lookback=9))
             feature_cnt += 7  # ta.aobv adds 7 columns
 
-        # mylogger.info("= After Adding APBV ========================================================")
-        # mylogger.info(aug_data.tail(10))
+        # self.logger.info("= After Adding APBV ========================================================")
+        # self.logger.info(aug_data.tail(10))
 
         # Target is the difference between the adjusted close and the open price.
         aug_data['Target'] = aug_data['Adj Close'] - aug_data.Open
@@ -1370,6 +1410,14 @@ class PricePredict():
             self.period = tc.period
             self.train_split = tc.train_split
             self.orig_data = pd.read_json(StringIO(tc.data))
+            if 'Date' in self.orig_data.columns:
+                self.orig_data.set_index('Date', inplace=True)
+            elif 'index' in self.orig_data.columns:
+                self.orig_data.set_index('index', inplace=True)
+            self.orig_data.index = pd.to_datetime(self.orig_data.index, unit='ms')
+            if type(self.orig_data.index[0]) is np.int64:
+                self.logger.warning(
+                    f"cached_train_predict_report - Ticker[{self.ticker}:{self.period}] has integer index, which may cause issues...")
             self.features = tc.feature_cnt
             self.data_scaled = np.array(tc.data_scaled)
             self.targets = tc.target_cnt
@@ -1416,6 +1464,15 @@ class PricePredict():
             self.dateStart_pred = pc.dateStart
             self.dateEnd_pred = pc.dateEnd
             self.orig_data = pd.read_json(StringIO(pc.data))
+            if 'Date' in self.orig_data.columns:
+                self.orig_data.set_index('Date', inplace=True)
+            elif 'index' in self.orig_data.columns:
+                self.orig_data.set_index('index', inplace=True)
+            self.orig_data.index = pd.to_datetime(self.orig_data.index, unit='ms')
+
+            if type(self.orig_data.index[0]) is np.int64:
+                self.logger.warning(
+                    f"cached_predict_report - Ticker[{self.ticker}:{self.period}] has integer index, which may cause issues...")
             self.features = pc.feature_cnt
             self.data_scaled = np.array(pc.data_scaled)
             self.targets = pc.target_cnt
@@ -1429,7 +1486,7 @@ class PricePredict():
             self.X = np.array(pc.X)
             self.y = np.array(pc.y)
         except Exception as e:
-            self.logger.error(f"Exception Error: Could not load prediction data for [{self.ticker}:{self.period}]: {e}")
+            self.logger.error(f"Exception Error: Could not load prediction data for [{self.ticker}|{pc.symbol}:{self.period}]: {e}")
             return
 
         # Make Predictions on all the data
@@ -1440,12 +1497,13 @@ class PricePredict():
 
         if no_report is False:
             """
+            - Prediction data is save to the PPO (which is pickled and compressed - .dilz).
+            """
+            pass
+
+        if save_plot is True:
+            """
             - Produce a prediction chart.
-            - Save the prediction data to a file or database.
-            - Save to weekly or daily data to a file or database.
-            - Save up/down corr data to a file or database.
-            - Perform Seasonality Decomposition.
-            - Save the Seasonality Decomposition to a file or database.
             """
             self.logger.info(f"Performing price prediction for [{self.ticker}:{self.period}] using cached data...")
             try:
@@ -1473,9 +1531,9 @@ class PricePredict():
         """
 
         X = []
-        # mylogger.info(data_set_scaled[0].size)
+        # self.logger.info(data_set_scaled[0].size)
         # data_set_scaled=data_set.values
-        # mylogger.info(data_set_scaled.shape[0])
+        # self.logger.info(data_set_scaled.shape[0])
 
         # Create a 3D array of the data. X[features][periods][candles]
         # Where candles is the number of candles that rolls by 1 period for each period.
@@ -1484,11 +1542,11 @@ class PricePredict():
             for i in range(backcandles, data_set_scaled.shape[0]):  # backcandles+2
                 X[j].append(data_set_scaled[i - backcandles:i, j])
 
-        # mylogger.info("X.shape:", np.array(X).shape)
+        # self.logger.info("X.shape:", np.array(X).shape)
         X = np.array(X)
         # Move axis from 0 to position 2
         X = np.moveaxis(X, [0], [2])
-        # mylogger.info("X.shape:", X.shape)
+        # self.logger.info("X.shape:", X.shape)
 
         # The last 4 columns are the Targets.
         # The ML model will learn to predict the 4 Target columns.
@@ -1644,7 +1702,7 @@ class PricePredict():
             self.fetch_opt_hyperparameters(self.ticker)
 
         # Split the scaled data into training and testing
-        # mylogger.info("lenX:",len(X), "splitLimit:",splitlimit)
+        # self.logger.info("lenX:",len(X), "splitLimit:",splitlimit)
         X_train, X_test = X[:split_limit], X[split_limit:]  # Training data, Test Data
         y_train, y_test = y[:split_limit], y[split_limit:]  # Training data, Test Data
 
@@ -2230,8 +2288,8 @@ class PricePredict():
             # - The expectation is that the predictions deltas are the valuable information.
             # - The abs(deltas) are also ranked from 1 to 10 info self.pred_rank.
             # - We should check if the prediction rank can be applied to an HMM model.
-            # Doing so makes use the the prediction deltas rather than the actual values.
-            # Detail re self.adj_xxx are stored to this object in the adjust_prediction method.
+            # Doing so makes use of the prediction deltas rather than the actual values.
+            # Details re self.adj_xxx are stored to this object in the adjust_prediction method.
             self.adjust_prediction()
 
             if start_date is not None:
@@ -2440,29 +2498,48 @@ class PricePredict():
     def gen_prediction_chart(self, last_candles=50,
                              file_path=None,
                              save_plot=False, show_plot=True):
+        """
+        Generates a prediction chart for the stock price forecast.
 
+        Parameters:
+        - last_candles (int): Number of last candles to consider for the forecast.
+        - file_path (str): Path to save the generated chart. If None, chart is saved with default naming.
+        - save_plot (bool): Whether to save the generated chart.
+        - show_plot (bool): Whether to display the generated chart.
+
+        Returns:
+        - None
+        """
+        df_plt_test_usd = None
+
+        # Create file_path if None or blank
         if file_path is None or file_path == '':
             last_date = self.date_data.iloc[-1]
             file_path = self.chart_dir + self.ticker + f"_{self.period}_{last_date}.png"
             self.chart_path = file_path
+        # Verify that we have a file_path
         if file_path is None or file_path == '':
             self.logger.error("Error: file_path is empty.")
             raise ValueError("Error: file_path is empty.")
 
+        # Verify that we have data
         if self.date_data is None or len(self.date_data) == 0:
             self.logger.error("Error: self.date_data is empty. Prior data load is required.")
             raise ValueError("Error: self.date_data is empty. Prior data load is required.")
+        # Verify that we have adjusted predictions
         if self.adj_pred is None or len(self.adj_pred) == 0:
             self.logger.error("Error: self.adj_pred is empty. Prior prediction is required.")
             raise ValueError("Error: self.adj_pred is empty. Prior prediction is required.")
 
+        # Set the split limit to the length of our date_data array * the train_split percentage
+        # If train_split is 1 split_limit will be the length of date_data
         split_limit = int(len(self.date_data) * self.train_split)
         self.split_limit = split_limit
 
-        # Createe a dataframe of the data for plt_test_usd, with a datetime index...
+        # Create a dataframe of the data for plt_test_usd, with a datetime index...
         df_plt_test_usd = pd.DataFrame()
 
-        split_start = self.back_candles + split_limit + 4
+        split_start =  + split_limit + 4
         if split_start >= len(self.date_data):
             split_start = 0
 
@@ -2487,28 +2564,33 @@ class PricePredict():
             # Convert the index to a datetime index...
             plt_ohlcv.index = pd.to_datetime(plt_ohlcv.index)
 
-        ohlcv = plt_ohlcv.copy()
-        if 'index' in ohlcv.columns:
-            ohlcv.drop(columns='index', inplace=True)
-            plt_ohlcv.drop(columns='index', inplace=True)
-        ohlcv = ohlcv.reset_index()
-
         ticker = self.ticker
+        ohlcv = plt_ohlcv.copy()
+        if self.period == 'Dx':
+            if 'index' in ohlcv.columns:
+                ohlcv.drop(columns='index', inplace=True)
+                plt_ohlcv.drop(columns='index', inplace=True)
+            ohlcv = ohlcv.reset_index(drop=True)
 
-        if 'Date' not in ohlcv.columns and 'Date' == ohlcv.index.name:
-            # Drop the date column from the ohlcv data...
-            ohlcv.drop(columns='Date', inplace=True)
+            if 'Date' not in ohlcv.columns and 'Date' == ohlcv.index.name:
+                # Drop the date column from the ohlcv data...
+                ohlcv.drop(columns='Date', inplace=True)
 
-        df_plt_test_usd = pd.concat([df_plt_test_usd, ohlcv[-len(df_plt_test_usd):]], axis=1)
+            df_plt_test_usd = pd.concat([df_plt_test_usd, ohlcv[-len(df_plt_test_usd):]], axis=1)
+        else:
+            df_plt_test_usd = ohlcv
+
+        # if df_plt_test_usd.index.isna().sum() != 0:
+        #     pass
 
         # Debug: Check for NaN in Volume column...
+        self.logger.info(f"1. Checking for NaN in Volume column for {ticker}")
         if 'Volume' in df_plt_test_usd.columns:
-            if df_plt_test_usd['Volume'].isnull().values.any():
-                self.logger.error("Error: NaN values found in the Volume column.")
-                raise ValueError("Error: NaN values found in the Volume column.")
+            df_plt_test_usd = df_plt_test_usd.dropna(subset=['Volume'])
 
         # Append a row do df_plt_test_usd for the prediction period
         # where open, high, low, and close are all equal to the last close price.
+        self.logger.info(f"2. Appending prediction row for {ticker}")
         if 'Close' in df_plt_test_usd.columns:
             last_close = df_plt_test_usd['Close'].iloc[-1]
             last_adj_close = df_plt_test_usd['Adj Close'].iloc[-1]
@@ -2548,18 +2630,17 @@ class PricePredict():
                        "Open": last_close, "High": last_close, "Low": last_close,
                        "Adj Close": last_adj_close, "Volume": 0}
 
+        self.logger.info(f"3. Checking for NaN in Volume column for {ticker}")
         # Debug: Check for NaN in Volume column...
         if 'Volume' in df_plt_test_usd.columns:
-            if df_plt_test_usd['Volume'].isnull().values.any():
-                self.logger.error("Error: NaN values found in the Volume column.")
-                raise ValueError("Error: NaN values found in the Volume column.")
+            df_plt_test_usd = df_plt_test_usd.dropna(subset=['Volume'])
 
         # Set the new row to the next day's date...
         new_row = pd.DataFrame(new_row, index=[next_date])
         # Append a place holder day for the prediction...
         df_plt_test_usd = pd.concat([df_plt_test_usd, new_row], axis=0)
 
-        # Determin the type of the Volume column...
+        # Determine the type of the Volume column...
         if 'Volume' in df_plt_test_usd.columns:
             if str(df_plt_test_usd['Volume'].dtype) == 'float64':
                 # Convert the Volume column to an integer...
@@ -2571,10 +2652,10 @@ class PricePredict():
             df_plt_test_usd.rename(columns={'Adj Close': 'Close'}, inplace=True)
 
         # Check if index Date column is 'NaT' (Not a Time)...
-        if str(type(df_plt_test_usd.index[0])) == "<class 'pandas._libs.tslibs.timestamps.Timestamp'>":
-            err_msg = "Error: The index of df_plt_test_usd is not a datetime index."
-            self.logger.error(err_msg)
-            raise ValueError(err_msg)
+        # if str(type(df_plt_test_usd.index[0])) == "<class 'pandas._libs.tslibs.timestamps.Timestamp'>":
+        #     err_msg = "Error: The index of df_plt_test_usd is not a datetime index."
+        #     self.logger.error(err_msg)
+        #     raise ValueError(err_msg)
 
         title = (f'Ticker: {ticker} -- Period[ {self.period}] -- {self.dateStart_pred} to {last_date}\n'
                  f'Predictions High: {self.adj_pred_high[-1].round(2)}  Close: {self.adj_pred_close[-1].round(2)}  Low: {self.adj_pred_low[-1].round(2)}')
@@ -2584,10 +2665,14 @@ class PricePredict():
         if hasattr(df_plt_test_usd.index[0], 'day') is False:
             df_plt_test_usd.set_index('Date', inplace=True, drop=True)
 
+        if df_plt_test_usd.index.isna().sum() != 0:
+            pass
+
         # Trim the number of periods to plot if requested...
         min_len = min(len(df_plt_test_usd), last_candles)
         df_plt_test_usd = df_plt_test_usd.iloc[-min_len:].copy()
         min_len = min(len(df_plt_test_usd), len(self.adj_pred_close))
+        self.logger.info(f"4. Plotting {ticker}")
         preds = [mpf.make_addplot(self.adj_pred_close[-min_len:],
                                   type='line', panel=0, color='orange', secondary_y=False),
                  mpf.make_addplot(self.adj_pred_high[-min_len:],
@@ -2610,6 +2695,9 @@ class PricePredict():
                                           type='line', linestyle='-.', panel=2, color='green', secondary_y=True))
 
         save_dict = dict(fname=file_path, dpi=300, pad_inches=0.25)
+
+        # if df_plt_test_usd.index.isna().sum() != 0:
+        #     pass
 
         df_plt_test_usd.ffill(inplace=True)
         fig = None
@@ -2638,10 +2726,10 @@ class PricePredict():
 
         if 'Close' in self.orig_data.columns:
             df_ohlcv = pd.DataFrame(self.orig_data[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]).tail(
-                len(self.pred) - 1)
+                len(self.pred) - 1).copy()
         else:
             df_ohlcv = pd.DataFrame(self.orig_data[['Open', 'High', 'Low', 'Adj Close', 'Volume']]).tail(
-                len(self.pred) - 1)
+                len(self.pred) - 1).copy()
             # Duplicate the 'Adj Close' column as 'Close'...
             df_ohlcv['Close'] = df_ohlcv['Adj Close']
 
@@ -2777,12 +2865,14 @@ class PricePredict():
         splitlimit = int(len(X) * train_split)
         self.split_limit = splitlimit
 
-        # mylogger.info("lenX:",len(X), "splitLimit:",splitlimit)
+        # self.logger.info("lenX:",len(X), "splitLimit:",splitlimit)
         X_train, X_test = X[:splitlimit], X[splitlimit:]  # Training data, Test Data
         y_train, y_test = y[:splitlimit], y[splitlimit:]  # Training data, Test Data
 
         self.ticker = ticker
         self.orig_data = orig_data
+        if type(self.orig_data.index[0]) is np.int64:
+            self.logger.warning(f"fetch_n_prep - Ticker[{self.ticker}:{self.period}] has integer index, which may cause issues...")
         self.features = features
         self.targets = targets
         self.date_data = dates_data
@@ -3051,7 +3141,7 @@ class PricePredict():
 
         # Convert back to dollar $values
         elements = len(self.adj_pred) - 1
-        # mylogger.info(f"elements:{elements}")
+        # self.logger.info(f"elements:{elements}")
         tot_deltas = 0
         tot_tradrng = 0
         if self.verbose:
@@ -3067,7 +3157,7 @@ class PricePredict():
                                  f"  Delta: ${pred_delta.round(6)}  Trade Rng: ${trd_rng.round(2)}")
 
         # Get up days vs down days
-        self_data = self.orig_data
+        self_data = self.orig_data.copy(deep=True)
         self_adj = self.adj_pred
         self_prd = self.pred
         close_col = 'Adj Close'
@@ -3123,7 +3213,7 @@ class PricePredict():
                                       'pct_uncorr': round(pct_prd_uncorr, 4)}
 
         elements = len(self.adj_pred_close)
-        # mylogger.info(f"elements:{elements}")
+        # self.logger.info(f"elements:{elements}")
         tot_deltas = 0
         tot_tradrng = 0
         for i in range(-1, -elements, -1):
@@ -3165,7 +3255,7 @@ class PricePredict():
             # Get deltas between days
             sd_deltas = [sd_trends[i] - sd_trends[i - 1] for i in range(1, len(sd_trends))]
             # Get up days vs down days
-            self_data = self.orig_data
+            self_data = self.orig_data.copy(deep=True)
             # If the 'Close' column is not in the data, use the 'Adj Close' column
             if 'Close' not in self_data.columns:
                 self_data['Close'] = self_data['Adj Close']
@@ -3219,9 +3309,8 @@ class PricePredict():
                 'pred_rank': f'{self.pred_rank}'}
 
             self.pred_strength = np.round((self.pred_rank + (self.season_rank * self.season_corr)) / 20, 4)
-            analysis['pred_strength'] = {
-                'strength': f'{self.pred_strength}'}
-            if str(type(self.pred_strength)) == "<class 'numpy.ndarray'>":
+            analysis['pred_strength'] = {'strength': f'{self.pred_strength}'}
+            if type(self.pred_strength) == np.ndarray:
                 self.logger.debug(f"pred_strength is a numpy array: {self.pred_strength[:3]}")
                 self.pred_strength = self.pred_strength[0]
 
@@ -3248,6 +3337,9 @@ class PricePredict():
                           target_close, target_high, target_low,
                           adj_pred_close, adj_pred_high, adj_pred_low,
                           title=''):
+        """
+        A simple plot of prediction results for tests and testing.
+        """
         # Plot the scaled test and predicted data.
         plt.figure(figsize=(16, 8), facecolor='grey')
         # Acj Close
@@ -3301,12 +3393,12 @@ class PricePredict():
 
         # PPO must be a PricePredict object
         if type(ppo).__name__ != type(self).__name__:
-            e_txt = (f"The ppo parameter must be a {type(self).__name__} object." +
+            e_txt = (f"periodic_correlation - The ppo parameter must be a {type(self).__name__} object." +
                      f" Incoming ppo type: {type(ppo).__name__}")
             self.logger.error(e_txt)
             raise ValueError(e_txt)
         if ppo.period != self.period:
-            e_txt = f"PPOs [{self.ticker}:{self.period}] [{ppo.ticker}:{ppo.period}] must have the same period."
+            e_txt = f"periodic_correlation - PPOs [{self.ticker}:{self.period}] [{ppo.ticker}:{ppo.period}] must have the same period."
             self.logger.error(e_txt)
             raise ValueError(e_txt)
 
@@ -3327,18 +3419,24 @@ class PricePredict():
             self_data, feature_cnt = self.fetch_data_yahoo(ticker=self.ticker, date_start=start_date, date_end=end_date)
             ppo_data, feature_cnt = ppo.fetch_data_yahoo(ticker=ppo.ticker, date_start=start_date, date_end=end_date)
             if self_data is None or ppo_data is None:
-                e_txt = f"Error: Could not load the data for correlation analysis."
+                e_txt = f"periodic_correlation - Error: Could not load the data for correlation analysis."
                 self.logger.error(e_txt)
                 raise ValueError(e_txt)
         else:
-            self_data = self.orig_data
-            ppo_data = ppo.orig_data
+            if self.orig_data is not None:
+                self_data = self.orig_data.copy(deep=True)
+            else:
+                self_data = self.orig_data
+            if ppo.orig_data is not None:
+                ppo_data = ppo.orig_data.copy(deep=True)
+            else:
+                ppo_data = ppo.orig_data
 
         if period_len is not None and min_data_points is not None and period_len < min_data_points:
             min_data_points = period_len
 
         if start_date is None:
-            # Get the require dataset for self and the incoming ppo.
+            # Get the required dataset for self and the incoming ppo.
             needed_end_dt = datetime.now().strftime("%Y-%m-%d")
             needed_start_dt = (datetime.now() - timedelta(days=300)).strftime("%Y-%m-%d")
             self_start_dt = self.date_start
@@ -3347,10 +3445,10 @@ class PricePredict():
             ppo_end_dt = ppo.date_end
             if self_data is None or needed_start_dt != self_start_dt or needed_end_dt != self_end_dt:
                 self_data, feature_cnt = self.fetch_data_yahoo(ticker=self.ticker, date_start=needed_start_dt, date_end=needed_end_dt)
-                self_data = self.orig_data
+                self_data = self.orig_data.copy(deep=True)
             if ppo_data is None or needed_start_dt != ppo_start_dt or needed_end_dt != ppo_end_dt:
                 ppo_data, feature_cnt = ppo.fetch_data_yahoo(ticker=ppo.ticker, date_start=needed_start_dt, date_end=needed_end_dt)
-                ppo_data = ppo.orig_data
+                ppo_data = ppo.orig_data.copy(deep=True)
             self_start_dt = self.date_start
             self_end_dt = self.date_end
             ppo_start_dt = ppo.date_start
@@ -3358,6 +3456,12 @@ class PricePredict():
 
         # Use as much data as possible for correlation analysis
         # Get the end date for each _date set
+        if type(self_data.index[-1]) == np.int64:
+            # We need use pd.datedime rather than np.1nt64 so that we can compare with '<' and do array slicing.
+            self_data.index = pd.to_datetime(self_data.index, unit='ms')
+        if type(ppo_data.index[-1]) == np.int64:
+            # We need use pd.datedime rather than np.1nt64 so that we can compare with '<' and do array slicing.
+            ppo_data.index = pd.to_datetime(ppo_data.index, unit='ms')
         self_end_date = self_data.index[-1]
         ppo_end_date = ppo_data.index[-1]
         best_end_date = min(self_end_date, ppo_end_date)
@@ -3378,27 +3482,33 @@ class PricePredict():
 
         # Once again, make sure that we have enough data points
         if min_data_points is not None and (self_data) < min_data_points:
-            e_txt = f"self[{self.ticker}:{self.period}] has less than {min_data_points} data points [{len(self_data)}]."
+            e_txt = f"periodic_correlation - self[{self.ticker}:{self.period}] has less than {min_data_points} data points [{len(self_data)}]."
             raise ValueError(e_txt)
         if min_data_points is not None and len(ppo_data) < min_data_points:
-            e_txt = f"ppo[{ppo.ticker}:{ppo.period}] has less than {min_data_points} data points [{len(ppo_data)}]."
+            e_txt = f"periodic_correlation - ppo[{ppo.ticker}:{ppo.period}] has less than {min_data_points} data points [{len(ppo_data)}]."
             raise ValueError(e_txt)
         # Check that both data sets have the same length
         if len(self_data) != len(ppo_data):
-            e_txt = f"Data lengths do not match [{self.ticker}:{self.period}] [{ppo.ticker}:{ppo.period}]: self[{len(self_data)}] != ppo[{len(ppo_data)}]"
+            e_txt = f"periodic_correlation - Data lengths do not match [{self.ticker}:{self.period}] [{ppo.ticker}:{ppo.period}]: self[{len(self_data)}] != ppo[{len(ppo_data)}]"
             raise ValueError(e_txt)
         # Check that both datasets begin on the same day
         if self_data.index[0] != ppo_data.index[0]:
-            e_txt = f"Data start dates do not match [{self.ticker}:{self.period}] [{ppo.ticker}:{ppo.period}]: self[{self_data.index[0]}] != ppo[{ppo_data.index[0]}]"
+            e_txt = f"periodic_correlation - Data start dates do not match [{self.ticker}:{self.period}] [{ppo.ticker}:{ppo.period}]: self[{self_data.index[0]}] != ppo[{ppo_data.index[0]}]"
             raise ValueError(e_txt)
         # Check that both datasets end on the same day
         if self_data.index[-1] != ppo_data.index[-1]:
-            e_txt = f"Data end dates do not match [{self.ticker}:{self.period}] [{ppo.ticker}:{ppo.period}]: self[{self_data.index[-1]}] != ppo[{ppo_data.index[-1]}]"
+            e_txt = f"periodic_correlation - Data end dates do not match [{self.ticker}:{self.period}] [{ppo.ticker}:{ppo.period}]: self[{self_data.index[-1]}] != ppo[{ppo_data.index[-1]}]"
             raise ValueError(e_txt)
 
         # Save the start and end dates and period length of the corr
-        corr_start_date = self_data.index[0].strftime("%Y-%m-%d %H:%M:%S")
-        corr_end_date = self_data.index[-1].strftime("%Y-%m-%d %H:%M:%S")
+        stdt_ = self_data.index[0]
+        if type(stdt_) == np.int64:
+            stdt_ = datetime.fromtimestamp(stdt_)
+        corr_start_date = stdt_.strftime("%Y-%m-%d %H:%M:%S")
+        endt_ = self_data.index[-1]
+        if type(endt_) == np.int64:
+            endt_ = datetime.fromtimestamp(endt_)
+        corr_end_date = endt_.strftime("%Y-%m-%d %H:%M:%S")
         corr_period_len = len(self_data)
 
         # Get up days vs down days
@@ -3421,71 +3531,71 @@ class PricePredict():
             3. Kendall: Calculate Kendall correlations trands.   
         """
         try_tracker = 'Before Correlation Functions'
-        try:
-            corr_list = [self_trends[i] + ppo_trends[i] for i in range(len(self_trends))]
-            # Concatenate self_trends with ppo_trends into one dataframe whose columns are stock_a and stock_b
-            corr_trends_df = pd.DataFrame({'stock_a': self_trends, 'stock_b': ppo_trends})
-            corr_close_df = pd.DataFrame({'stock_a': self_closes, 'stock_b': ppo_closes})
-            corr_close_df = corr_close_df.bfill().ffill()
-            normed_close_df = (corr_trends_df - corr_trends_df.mean()) / corr_trends_df.std()
-            # Perform Pearson Correlation on the raw closing prices and the normalized closing prices
-            try_tracker = 'Person Correlation (Raw Closes)'
-            pearson_corr_raw_matrix = corr_close_df.corr(method='pearson')
-            try_tracker = 'Person Correlation (Raw Closes)'
-            pearson_corr_nrm_matrix = normed_close_df.corr(method='pearson')
-            # Perform Spearman and Kendall Correlation on the trends for the same timeframe
-            try_tracker = 'Spearman Correlation'
-            spearman_corr_matrix = corr_trends_df.corr(method='spearman')
-            try_tracker = 'Kendall Correlation'
-            kendall_corr_matrix = corr_trends_df.corr(method='kendall')
-            try_tracker = 'After Kendall Correlation'
-            # Get the Pearson corr values
-            pearson_raw_corr = pearson_corr_raw_matrix.loc['stock_a']['stock_b']
-            pearson_nrm_corr = pearson_corr_nrm_matrix.loc['stock_a']['stock_b']
-            # Get the Spearman and Kendall corr values
-            spearman_corr = spearman_corr_matrix.loc['stock_a']['stock_b']
-            kendall_corr = kendall_corr_matrix.loc['stock_a']['stock_b']
-            # Perform a coinegration test on the closing prices of the two stocks
-            # Coint() returns coint_test(t-stat, p-value, [crit_values])
-            try_tracker = 'Cointegration Test'
-            coint_test = coint(self_closes, ppo_closes)
-            try_tracker = 'After Cointegration Test'
-            # Get the coinegration test result values
-            # If this number is zero or greater, the two series are cointegrated.
-            is_cointegrated = False
-            if coint_test[0] < min(coint_test[2]) and coint_test[1] < 0.05:
-                is_cointegrated = True
-            coint_dict = {'is_cointegrated': is_cointegrated, 't_stat': coint_test[0],
-                          'p_val': coint_test[1], 'crit_val': list(coint_test[2])}
-            # Perform an ADF test on the spread between the two stocks.
-            # Augmented Dickey Fuller Test: This is a test for stationarity in the spread data between 2 stocks.
-            # This is required for Pairs Trading. We want the combination of Coinegration and Stationarity.
-            # - Get the spread between the two stocks via self_closes and ppo_closes
-            spread = self_closes - ppo_closes
-            spread = spread.bfill().ffill()
-            # Perform the ADF test on the spread data
-            try_tracker = 'ADF Test'
-            adf_result = sm.tsa.stattools.adfuller(spread, store=True, regresults=False)
-            try_tracker = 'AFter ADF Test'
-            # Gather the ADF test results
-            is_stationary = False
-            if adf_result[0] < min(adf_result[2].values()) and adf_result[1] < 0.05:
-                is_stationary = True
-            adf_dict = {'is_stationary': is_stationary, 'adf_stat': adf_result[0], 'p_val': adf_result[1],
-                        'crit_val': adf_result[2]}
-        except Exception as e:
-            err_msg = (f"Error: In periodic_correlation(): {try_tracker} - " +
-                       f"self.ticker[{self.ticker}] ppo.ticker[{ppo.ticker}] period[{self.period}]\n{e}")
-            self.logger.error(err_msg)
-            raise ValueError(f"Error: {err_msg}")
+        # try:
+        corr_list = [self_trends[i] + ppo_trends[i] for i in range(len(self_trends))]
+        # Concatenate self_trends with ppo_trends into one dataframe whose columns are stock_a and stock_b
+        corr_trends_df = pd.DataFrame({'stock_a': self_trends, 'stock_b': ppo_trends})
+        corr_close_df = pd.DataFrame({'stock_a': self_closes, 'stock_b': ppo_closes})
+        corr_close_df = corr_close_df.bfill().ffill()
+        normed_close_df = (corr_trends_df - corr_trends_df.mean()) / corr_trends_df.std()
+        # Perform Pearson Correlation on the raw closing prices and the normalized closing prices
+        try_tracker = 'Person Correlation (Raw Closes)'
+        pearson_corr_raw_matrix = corr_close_df.corr(method='pearson')
+        try_tracker = 'Person Correlation (Raw Closes)'
+        pearson_corr_nrm_matrix = normed_close_df.corr(method='pearson')
+        # Perform Spearman and Kendall Correlation on the trends for the same timeframe
+        try_tracker = 'Spearman Correlation'
+        spearman_corr_matrix = corr_trends_df.corr(method='spearman')
+        try_tracker = 'Kendall Correlation'
+        kendall_corr_matrix = corr_trends_df.corr(method='kendall')
+        try_tracker = 'After Kendall Correlation'
+        # Get the Pearson corr values
+        pearson_raw_corr = pearson_corr_raw_matrix.loc['stock_a']['stock_b']
+        pearson_nrm_corr = pearson_corr_nrm_matrix.loc['stock_a']['stock_b']
+        # Get the Spearman and Kendall corr values
+        spearman_corr = spearman_corr_matrix.loc['stock_a']['stock_b']
+        kendall_corr = kendall_corr_matrix.loc['stock_a']['stock_b']
+        # Perform a coinegration test on the closing prices of the two stocks
+        # Coint() returns coint_test(t-stat, p-value, [crit_values])
+        try_tracker = 'Cointegration Test'
+        coint_test = coint(self_closes, ppo_closes)
+        try_tracker = 'After Cointegration Test'
+        # Get the coinegration test result values
+        # If this number is zero or greater, the two series are cointegrated.
+        is_cointegrated = False
+        if coint_test[0] < min(coint_test[2]) and coint_test[1] < 0.05:
+            is_cointegrated = True
+        coint_dict = {'is_cointegrated': is_cointegrated, 't_stat': coint_test[0],
+                      'p_val': coint_test[1], 'crit_val': list(coint_test[2])}
+        # Perform an ADF test on the spread between the two stocks.
+        # Augmented Dickey Fuller Test: This is a test for stationarity in the spread data between 2 stocks.
+        # This is required for Pairs Trading. We want the combination of Coinegration and Stationarity.
+        # - Get the spread between the two stocks via self_closes and ppo_closes
+        spread = self_closes - ppo_closes
+        spread = spread.bfill().ffill()
+        # Perform the ADF test on the spread data
+        try_tracker = 'ADF Test'
+        adf_result = sm.tsa.stattools.adfuller(spread, store=True, regresults=False)
+        try_tracker = 'AFter ADF Test'
+        # Gather the ADF test results
+        is_stationary = False
+        if adf_result[0] < min(adf_result[2].values()) and adf_result[1] < 0.05:
+            is_stationary = True
+        adf_dict = {'is_stationary': is_stationary, 'adf_stat': adf_result[0], 'p_val': adf_result[1],
+                    'crit_val': adf_result[2]}
+        # except Exception as e:
+        #     err_msg = (f"Error: In periodic_correlation(): {try_tracker} - " +
+        #                f"self.ticker[{self.ticker}] ppo.ticker[{ppo.ticker}] period[{self.period}]\n{e}")
+        #     self.logger.error(err_msg)
+        #     raise ValueError(f"Error: {err_msg}")
 
         total_days = len(corr_list)
         correlated_days = corr_list.count(2) + corr_list.count(-2)
         uncorrelated_days = corr_list.count(0)
         pct_corr = correlated_days / total_days
         pct_uncorr = uncorrelated_days / total_days
-        # self.mylogger.info(f"Days: {total_days} Correlated Days: {correlated_days}  Uncorrelated Days: {uncorrelated_days}")
-        # self.mylogger.info(f"Correlated Days: {pct_corr}%  Uncorrelated Days: {pct_uncorr}%")
+        # self.self.logger.info(f"Days: {total_days} Correlated Days: {correlated_days}  Uncorrelated Days: {uncorrelated_days}")
+        # self.self.logger.info(f"Correlated Days: {pct_corr}%  Uncorrelated Days: {pct_uncorr}%")
         coint_stationary = False
         if is_cointegrated and is_stationary:
             coint_stationary = True
@@ -3695,7 +3805,7 @@ class PricePredict():
                 self.sentiment_json = json.loads(jsn_str.strip())
             except Exception as e:
                 self.sentiment_json = {}
-                self.logger.warn(f"Failed to parse JSON response from Groq for sentiment on [{self.ticker}:{self.period}].\n{e}")
+                self.logger.warning(f"Failed to parse JSON response from Groq for sentiment on [{self.ticker}:{self.period}].\n{e}")
                 self.sentiment_text = content.strip()
         else:
             self.sentiment_json = {}
@@ -3734,7 +3844,7 @@ class PricePredict():
             # Set date_start to 2 years before today's date aligned to a Monday
             self.fetch_data_yahoo(ticker=self.ticker, period=self.period, date_start=self.date_start, date_end=self.date_end)
 
-        data = self.orig_data
+        data = self.orig_data.copy(deep=True)
 
         if 'Date' in data.columns and 'Date' not in data.index:
             data.set_index('Date', inplace=True)
@@ -3791,7 +3901,7 @@ class PricePredict():
         return lzma.compress(dill.dumps(obj))
 
     @staticmethod
-    def unserialize(obj, ignore: bool = False):
+    def unserialize(obj, ignore: bool = False, logger = None):
 
         if ignore is None and ignore is False:
             # But default use the current PricePredict Module
@@ -3800,7 +3910,10 @@ class PricePredict():
             PricePredict.__module__ = '__main__'
 
         # Decompress the object
-        return dill.loads(lzma.decompress(obj), ignore=ignore)
+        ppo_ = dill.loads(lzma.decompress(obj), ignore=ignore)
+        # Pass the logger into the unserialized object.
+        ppo_.logger = logger
+        return ppo_
 
     def serialize_me(self):
         # Compress the object
